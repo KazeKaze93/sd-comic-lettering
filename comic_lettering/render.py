@@ -52,28 +52,35 @@ def parse_color(value, default):
 
 
 def parse_text(text, uppercase):
-    """Split into paragraphs of (word, emphasized). *word* marks emphasis."""
+    """Split into paragraphs of (word, emphasized, glued). *word* marks emphasis."""
     if uppercase:
         text = text.upper()
     paragraphs = [[]]
     word = ""
     word_emph = False
     emph = False
+    glue = False  # the next piece continues a hyphenated word: no space before it
     for ch in text.replace("\r", ""):
         if ch == "*":
             emph = not emph
         elif ch == "\n" or ch.isspace():
             if word:
-                paragraphs[-1].append((word, word_emph))
+                paragraphs[-1].append((word, word_emph, glue))
                 word = ""
+            glue = False
             if ch == "\n":
                 paragraphs.append([])
         else:
             if not word:
                 word_emph = emph
             word += ch
+            if ch == "-" and word.strip("-"):
+                # "H-m-m" -> "H-", "m-", "m": a line may break after a hyphen.
+                paragraphs[-1].append((word, word_emph, glue))
+                word = ""
+                glue = True
     if word:
-        paragraphs[-1].append((word, word_emph))
+        paragraphs[-1].append((word, word_emph, glue))
     return [p for p in paragraphs if p] or [[]]
 
 
@@ -82,21 +89,22 @@ def get_fonts(style, size):
 
 
 def layout(paragraphs, fonts, max_width):
-    """Greedy word wrap. Returns [(words, width)], words = [(text, emphasized, width)]."""
+    """Greedy word wrap. Returns [(words, width)], words = [(text, emphasized, width, glued)]."""
     base, big = fonts
     space = base.getlength(" ")
     lines = []
     for para in paragraphs:
         current = []
         width = 0.0
-        for word, emph in para:
+        for word, emph, glue in para:
             word_w = (big if emph else base).getlength(word)
-            if current and width + space + word_w > max_width:
+            gap = 0.0 if glue else space
+            if current and width + gap + word_w > max_width:
                 lines.append((current, width))
                 current = []
                 width = 0.0
-            width = word_w if not current else width + space + word_w
-            current.append((word, emph, word_w))
+            width = word_w if not current else width + gap + word_w
+            current.append((word, emph, word_w, glue))
         lines.append((current, width))
     return lines
 
@@ -105,7 +113,7 @@ def line_heights(lines, size, style):
     """Height of every line; a line with an emphasized word is taller."""
     heights = []
     for words, _ in lines:
-        scale = EMPHASIS_SCALE if any(emph for _, emph, _ in words) else 1.0
+        scale = EMPHASIS_SCALE if any(emph for _, emph, _, _ in words) else 1.0
         heights.append(int(math.ceil(size * scale * style.line_spacing)))
     return heights
 
@@ -145,8 +153,10 @@ def render_block(lines, size, style, fill, stroke=None, stroke_px=0, shadow=0.0)
         ink = heights[index] / style.line_spacing
         baseline = top + heights[index] * 0.5 + ink * 0.35
         top += heights[index]
-        for word, emph, word_w in words:
+        for position, (word, emph, word_w, glue) in enumerate(words):
             font = big if emph else base
+            if position and not glue:
+                x += space
             if not per_char:
                 fill_draw.text((x, baseline), word, font=font, fill=255, anchor="ls")
                 if stroke_draw is not None:
@@ -171,7 +181,7 @@ def render_block(lines, size, style, fill, stroke=None, stroke_px=0, shadow=0.0)
                                                   anchor="ls", stroke_width=sw)
                         tile = tile.rotate(angle, resample=Image.BICUBIC)
                         mask.paste(255, origin, tile)
-            x += word_w + space
+            x += word_w
     layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     ink = ImageChops.lighter(fill_mask, stroke_mask) if stroke_mask is not None else fill_mask
     if shadow > 0:
