@@ -54,7 +54,7 @@ Restart the host afterwards.
 | `soften`, `grain`, `opacity` | Blur, uneven ink and transparency, to blend the letters with the art. |
 | `margin` | Gap between the text and the bubble edge. |
 | `erase_ai_text` | Erase the model's letters before writing. |
-| `white_threshold` | How white a bubble must be. Lower it for grayish bubbles. |
+| `white_threshold` | Darkest bubble fill that still counts (default 180). Lower it for darker gray bubbles, raise it if light clothing gets lettered. |
 | `seed` | Seed of the jitter. |
 
 ## Fonts
@@ -63,6 +63,6 @@ Drop `.ttf` / `.otf` files into `fonts/` and restart. Font files are git-ignored
 
 ## Limits
 
-- Only light bubbles are detected: near-white, with a dark outline, or without an outline but with letters inside.
+- Only light bubbles are detected: white to light gray with a dark outline, or near-white without an outline but with letters inside. Any other light, outlined, blob-shaped area (a white shirt) can be mistaken for a bubble.
 - No face detection: free text can land on a character. Pick the placement by hand in that case.
 - No emoji fallback font.

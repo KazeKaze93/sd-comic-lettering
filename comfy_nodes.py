@@ -33,7 +33,7 @@ class ComicLettering(object):
             "opacity": num(1.0, 0.1, 1.0, 0.05),
             "margin": num(0.08, 0.0, 0.3, 0.01),
             "erase_ai_text": ("BOOLEAN", {"default": True}),
-            "white_threshold": ("INT", {"default": 225, "min": 120, "max": 255}),
+            "white_threshold": ("INT", {"default": 180, "min": 120, "max": 255}),
             "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFF}),
         }}
 

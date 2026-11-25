@@ -16,7 +16,7 @@ PLACEMENTS = ["auto", "top", "bottom", "center"]
 
 
 def letter(image, text, mode="auto", placement="auto", style=None, erase=True,
-           white_threshold=225, rtl=False):
+           white_threshold=180, rtl=False):
     # type: (Image.Image, str, str, str, Style, bool, int, bool) -> Tuple[Image.Image, Dict]
     """Letter an image.
 
@@ -57,7 +57,7 @@ def _fits(lines, size, style, inner, cy, cx):
         top += heights[index]
         if not words:
             continue
-        ink = int(heights[index] / style.line_spacing)
+        ink = int(heights[index] / style.line_spacing * 0.78)  # capitals, not the full em box
         y0 = int(line_top + (heights[index] - ink) / 2.0)
         y1 = y0 + ink
         x0 = int(cx - width / 2.0)

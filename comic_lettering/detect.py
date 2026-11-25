@@ -31,22 +31,53 @@ def luminance(rgb):
     return rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
 
 
-def detect_bubbles(rgb, white_threshold=225, min_area=0.008, max_area=0.6,
+def detect_bubbles(rgb, white_threshold=180, min_area=0.008, max_area=0.6,
                    min_outline=0.3, rtl=False):
     # type: (np.ndarray, int, float, float, float, bool) -> List[Bubble]
     """Find speech bubbles in an RGB uint8 array.
 
-    A bubble is a near-white connected region that, once the letters inside are
-    filled in, is large enough, fairly solid, and mostly surrounded by a dark outline.
+    A bubble is a light, unsaturated connected region that, once the letters inside
+    are filled in, is large enough, fairly solid, and mostly surrounded by a dark
+    outline. Models with a muted palette draw gray bubbles, so several brightness
+    levels are tried, from near-white down to white_threshold.
     """
+    h, w = rgb.shape[:2]
+    lum = luminance(rgb.astype(np.float32))
+    levels = list(range(235, int(white_threshold), -20)) + [int(white_threshold)]
+    found = []
+    for level in levels:
+        for bubble in _detect_at(rgb, lum, level, min_area, max_area, min_outline,
+                                 allow_unoutlined=level >= 215):
+            x0, y0, x1, y1 = bubble.bbox()
+            if not any(x0 <= b.cx < x1 and y0 <= b.cy < y1 for b in found):
+                found.append(bubble)
+    return _reading_order(found, rtl)
+
+
+def _reading_order(bubbles, rtl):
+    """Rows top to bottom; bubbles that overlap vertically share a row."""
+    rows = []
+    for bubble in sorted(bubbles, key=lambda b: b.cy):
+        if rows:
+            _, top, _, bottom = rows[-1][0].bbox()
+            if top <= bubble.cy < bottom:
+                rows[-1].append(bubble)
+                continue
+        rows.append([bubble])
+    ordered = []
+    for row in rows:
+        ordered.extend(sorted(row, key=lambda b: -b.cx if rtl else b.cx))
+    return ordered
+
+
+def _detect_at(rgb, lum, level, min_area, max_area, min_outline, allow_unoutlined):
     h, w = rgb.shape[:2]
     mn = rgb.min(axis=2)
     mx = rgb.max(axis=2)
-    white = (mn >= white_threshold) & ((mx.astype(np.int16) - mn) <= 32)
+    white = (mn >= level) & ((mx.astype(np.int16) - mn) <= 32)
     labels, count = ndi.label(white)
     if count == 0:
         return []
-    lum = luminance(rgb.astype(np.float32))
     areas = np.bincount(labels.ravel())
     total = h * w
     found = []
@@ -77,7 +108,8 @@ def detect_bubbles(rgb, white_threshold=225, min_area=0.008, max_area=0.6,
         ring_lum = lum[y0:y1, x0:x1][ring]
         outlined = float((ring_lum < 110).mean()) >= min_outline
         lettered = (filled_area - int(comp.sum())) >= 0.004 * filled_area
-        if not outlined and not (lettered and float((ring_lum < 150).mean()) >= min_outline):
+        if not outlined and not (allow_unoutlined and lettered
+                                 and float((ring_lum < 150).mean()) >= min_outline):
             continue
         # Drop the tail: keep what survives an opening with a large radius.
         radius = max(2.0, 0.10 * np.sqrt(filled_area))
@@ -95,8 +127,6 @@ def detect_bubbles(rgb, white_threshold=225, min_area=0.008, max_area=0.6,
             continue
         color = tuple(int(v) for v in np.median(rgb[y0:y1, x0:x1][comp], axis=0))
         found.append(Bubble(y0, x0, comp, filled, body, color))
-    band = max(1.0, 0.2 * h)
-    found.sort(key=lambda b: (int(b.cy // band), -b.cx if rtl else b.cx))
     return found
 
 
