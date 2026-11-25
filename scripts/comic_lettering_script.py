@@ -27,11 +27,16 @@ DEFAULTS = {
     "stroke_color": "auto", "stroke_width": 0.12, "shadow": 0.5, "jitter": 0.3, "arc": 0.0,
     "rotation": 0.0, "soften": 0.4, "grain": 0.0, "opacity": 1.0, "margin": 0.08,
     "white_threshold": 120, "seed": 0,
+    "sfx_font": "", "sfx_size": 7.0, "sfx_color": "auto", "sfx_tilt": 15.0, "sfx_opacity": 0.95,
+    "sfx_seed": 0,
 }
 # Order of the remembered values in the argument list, after enabled, text, caption, numbers.
+# The SFX text comes last, after all of these.
 ORDER = ["placement", "font", "spill", "uppercase", "erase", "bubble_size", "bubble_min_size",
          "free_size", "text_color", "stroke_color", "stroke_width", "shadow", "jitter", "arc",
-         "rotation", "soften", "grain", "opacity", "margin", "white_threshold", "seed"]
+         "rotation", "soften", "grain", "opacity", "margin", "white_threshold", "seed",
+         "sfx_font", "sfx_size", "sfx_color", "sfx_tilt", "sfx_opacity", "sfx_seed"]
+SFX_FONT = "Bangers"
 
 # Per tab: the images of the last generation before any lettering, and what is needed to save.
 STORE = {}
@@ -55,6 +60,8 @@ def load_settings():
     fonts = font_names()
     if values["font"] not in fonts:
         values["font"] = fonts[0]
+    if values["sfx_font"] not in fonts:
+        values["sfx_font"] = SFX_FONT if SFX_FONT in fonts else fonts[0]
     if values["placement"] not in PLACEMENTS:
         values["placement"] = DEFAULTS["placement"]
     return values
@@ -73,13 +80,19 @@ def save_settings(values):
 
 
 def read_values(values):
+    """Split the trailing script arguments into the settings and the SFX text."""
     s = dict(DEFAULTS)
     s.update(dict(zip(ORDER, values)))
     s["seed"] = int(s["seed"] or 0)
+    s["sfx_seed"] = int(s["sfx_seed"] or 0)
     s["white_threshold"] = int(s["white_threshold"])
+    fonts = font_names()
     if not s["font"]:
-        s["font"] = font_names()[0]
-    return s
+        s["font"] = fonts[0]
+    if not s["sfx_font"]:
+        s["sfx_font"] = SFX_FONT if SFX_FONT in fonts else fonts[0]
+    sfx = values[len(ORDER)] if len(values) > len(ORDER) else ""
+    return s, (sfx or "")
 
 
 def make_style(s):
@@ -88,13 +101,15 @@ def make_style(s):
                  shadow=s["shadow"], rotation=s["rotation"], jitter=s["jitter"], arc=s["arc"],
                  soften=s["soften"], grain=s["grain"], opacity=s["opacity"],
                  free_size=s["free_size"], bubble_size=s["bubble_size"],
-                 bubble_min_size=s["bubble_min_size"], margin=s["margin"], seed=s["seed"])
+                 bubble_min_size=s["bubble_min_size"], margin=s["margin"], seed=s["seed"],
+                 sfx_font=s["sfx_font"], sfx_size=s["sfx_size"], sfx_color=s["sfx_color"],
+                 sfx_tilt=s["sfx_tilt"], sfx_opacity=s["sfx_opacity"], sfx_seed=s["sfx_seed"])
 
 
-def run_letter(image, text, caption, numbers, s):
+def run_letter(image, text, caption, numbers, s, sfx=""):
     return letter(image, text, caption=caption, spill=s["spill"], placement=s["placement"],
                   style=make_style(s), erase=s["erase"], white_threshold=s["white_threshold"],
-                  numbers=numbers)
+                  numbers=numbers, sfx=sfx)
 
 
 def fonts_css():
@@ -159,9 +174,13 @@ class ComicLetteringScript(scripts.Script):
                                               "An empty line skips a bubble. *word* = bigger.")
                 caption = gr.Textbox(label="Caption", lines=2, max_lines=6,
                                      placeholder="Text on the art, outside the bubbles.")
+                sfx = gr.Textbox(label="SFX", lines=2, max_lines=6,
+                                 placeholder="Sound effects, one per line: SLAP, THUD. Each is drawn "
+                                             "big and tilted in an empty spot of the art.")
             with gr.Row():
                 apply_button = gr.Button("Apply", variant="primary", size="sm", scale=1, min_width=80)
                 save_button = gr.Button("Save", size="sm", scale=1, min_width=80)
+                shuffle_button = gr.Button("Move SFX", size="sm", scale=1, min_width=90)
                 enabled = gr.Checkbox(label="Every new image", value=False, scale=2, min_width=140)
                 numbers = gr.Checkbox(label="Bubble numbers", value=False, scale=2, min_width=140)
             with gr.Row():
@@ -197,21 +216,32 @@ class ComicLetteringScript(scripts.Script):
                     margin = gr.Slider(label="Bubble margin", minimum=0, maximum=0.3, step=0.01, value=s["margin"])
                     white_threshold = gr.Slider(label="Bubble min brightness", minimum=40, maximum=255, step=1, value=s["white_threshold"])
                     seed = gr.Number(label="Jitter seed", value=s["seed"], precision=0)
+                with gr.Row():
+                    sfx_font = gr.Dropdown(label="SFX font", choices=fonts, value=s["sfx_font"])
+                    sfx_size = gr.Slider(label="SFX: size, % of height", minimum=1, maximum=30, step=0.5, value=s["sfx_size"])
+                    sfx_tilt = gr.Slider(label="SFX: max tilt, degrees", minimum=0, maximum=45, step=1, value=s["sfx_tilt"])
+                with gr.Row():
+                    sfx_color = gr.Textbox(label="SFX color (auto or #RRGGBB)", value=s["sfx_color"])
+                    sfx_opacity = gr.Slider(label="SFX opacity", minimum=0.1, maximum=1, step=0.05, value=s["sfx_opacity"])
+                    sfx_seed = gr.Number(label="SFX placement (Move SFX changes it)", value=s["sfx_seed"], precision=0)
         by_name = {"placement": placement, "font": font, "spill": spill, "uppercase": uppercase,
                    "erase": erase, "bubble_size": bubble_size, "bubble_min_size": bubble_min_size,
                    "free_size": free_size, "text_color": text_color, "stroke_color": stroke_color,
                    "stroke_width": stroke_width, "shadow": shadow, "jitter": jitter, "arc": arc,
                    "rotation": rotation, "soften": soften, "grain": grain, "opacity": opacity,
-                   "margin": margin, "white_threshold": white_threshold, "seed": seed}
+                   "margin": margin, "white_threshold": white_threshold, "seed": seed,
+                   "sfx_font": sfx_font, "sfx_size": sfx_size, "sfx_color": sfx_color,
+                   "sfx_tilt": sfx_tilt, "sfx_opacity": sfx_opacity, "sfx_seed": sfx_seed}
         remembered = [by_name[key] for key in ORDER]
-        controls = [enabled, text, caption, numbers] + remembered
+        controls = [enabled, text, caption, numbers] + remembered + [sfx]
         # The values live in user_settings.json; keep the host's ui-config.json out of it.
         for component in controls + [status]:
             component.do_not_save_to_config = True
         self.panel = panel
         self.rendered = not deferred
         self.parts = {"apply": apply_button, "save": save_button, "status": status,
-                      "font": font, "text": text, "caption": caption,
+                      "font": font, "text": text, "caption": caption, "sfx": sfx,
+                      "shuffle": shuffle_button, "sfx_font": sfx_font, "sfx_seed": sfx_seed,
                       "numbers": numbers, "remembered": remembered}
         if not deferred:
             self.wire()
@@ -230,12 +260,15 @@ class ComicLetteringScript(scripts.Script):
 
     def wire(self):
         parts = self.parts
-        inputs = [parts["text"], parts["caption"], parts["numbers"]] + parts["remembered"]
+        inputs = ([parts["text"], parts["caption"], parts["numbers"]] + parts["remembered"]
+                  + [parts["sfx"]])
         outputs = [parts["status"]]
         if self.gallery is not None:
             outputs = outputs + [self.gallery]
         parts["apply"].click(fn=self.apply_now, inputs=inputs, outputs=outputs)
         parts["font"].change(fn=self.apply_quiet, inputs=inputs, outputs=outputs)
+        parts["sfx_font"].change(fn=self.apply_quiet, inputs=inputs, outputs=outputs)
+        parts["shuffle"].click(fn=self.move_sfx, inputs=inputs, outputs=outputs + [parts["sfx_seed"]])
         parts["save"].click(fn=self.save_now, inputs=[], outputs=[parts["status"]])
         # ui-config and the build-time values are stale after a browser reload: refresh
         # the remembered values from the settings file on every page load.
@@ -258,29 +291,39 @@ class ComicLetteringScript(scripts.Script):
 
     def apply_now(self, text, caption, numbers, *values, **options):
         """Letter the images of the last generation again, from their clean copies."""
-        s = read_values(values)
+        s, sfx = read_values(values)
         save_settings(s)
         clean = self.store().get("clean") or []
         if not clean:
             quiet = options.get("quiet")
             return self.reply("" if quiet else note("Generate an image first: there is nothing to letter yet."),
                               s, text, caption)
-        if not (text or "").strip() and not (caption or "").strip() and not numbers:
+        if not (text or "").strip() and not (caption or "").strip() and not sfx.strip() and not numbers:
             self.store()["results"] = None
             return self.reply(note("No text: showing the clean image."), s, text, caption, list(clean))
         results = []
         info = {}
         for image in clean:
-            lettered, info = run_letter(image, text, caption, numbers, s)
+            lettered, info = run_letter(image, text, caption, numbers, s, sfx)
             results.append(lettered)
         self.store()["results"] = None if numbers else results
-        message = "Bubbles found: %d, filled: %d%s." % (
+        message = "Bubbles found: %d, filled: %d%s%s." % (
             info.get("bubbles_found", 0), info.get("bubbles_filled", 0),
-            ", plus a caption" if info.get("free_text") else "")
+            ", plus a caption" if info.get("free_text") else "",
+            ", SFX: %d" % info["sfx"] if info.get("sfx") else "")
         return self.reply(note(message), s, text, caption, results)
 
     def apply_quiet(self, *args):
         return self.apply_now(*args, quiet=True)
+
+    def move_sfx(self, text, caption, numbers, *values):
+        """Put the sound effects somewhere else: bump the placement number and apply."""
+        values = list(values)
+        position = ORDER.index("sfx_seed")
+        moved = int((values[position] if position < len(values) else 0) or 0) + 1
+        if position < len(values):
+            values[position] = moved
+        return self.apply_now(text, caption, numbers, *values) + [moved]
 
     def save_now(self):
         store = self.store()
@@ -309,11 +352,11 @@ class ComicLetteringScript(scripts.Script):
     def postprocess_image(self, p, pp, enabled=False, text="", caption="", numbers=False, *values):
         store = self.store()
         store.setdefault("clean", []).append(pp.image.copy())
-        if not enabled or (not (text or "").strip() and not (caption or "").strip()):
+        s, sfx = read_values(values)
+        if not enabled or (not (text or "").strip() and not (caption or "").strip() and not sfx.strip()):
             return
-        s = read_values(values)
         save_settings(s)
-        pp.image, _ = run_letter(pp.image, text, caption, False, s)
+        pp.image, _ = run_letter(pp.image, text, caption, False, s, sfx)
 
     def postprocess(self, p, processed, *args):
         store = self.store()

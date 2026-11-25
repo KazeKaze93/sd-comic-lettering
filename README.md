@@ -47,10 +47,11 @@ Add the `Comic Lettering` node (category `image/postprocessing`) between `VAE De
 
 ### Text
 
-Two fields:
+Three fields:
 
 - **Bubbles**: one line per bubble, in reading order (top to bottom, left to right). An empty line skips a bubble. Line breaks inside a bubble are placed automatically.
-- **Caption**: text drawn straight onto the art, outside the bubbles.
+- **Caption**: text drawn straight onto the art, outside the bubbles. With `auto` placement it takes the calmer of top and bottom and keeps off the bubbles.
+- **SFX**: sound effects, one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the caption and the other effects. **Move SFX** puts them somewhere else; press it until they sit well.
 
 `*word*` makes a word bigger. A word may break after a hyphen (`H-m-m`) when that lets the text be bigger.
 
@@ -77,6 +78,9 @@ A line goes into a bubble only if it fits at a readable size (`bubble_min_size`)
 | `erase_ai_text` | Erase the model's letters before writing. |
 | `white_threshold` | Darkest bubble fill that still counts (default 120). Raise it if a gray object gets lettered. |
 | `seed` | Seed of the jitter. |
+| `sfx_font`, `sfx_size`, `sfx_color`, `sfx_opacity` | Look of the sound effects. `auto` color is white with a dark outline. |
+| `sfx_tilt` | Each effect is tilted by a random angle up to this many degrees. |
+| `sfx_seed` | Where the effects land and how they tilt. `Move SFX` raises it by one. |
 
 ## Fonts
 
@@ -94,5 +98,5 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 - A bubble is detected as a flat white or gray fill (any brightness above `white_threshold`), enclosed by a dark outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, bubbles with a gradient fill and rectangular caption boxes are not found.
 - Anything else that looks the same gets lettered too, such as a blank sheet of paper on a wall. Use `Bubble numbers` to see what was found and an empty line to skip it.
 - A narrow bubble cannot hold a long word at a readable size. Such text goes to the caption.
-- No face detection: the caption can land on a character. Pick the placement by hand in that case.
+- No face detection: the caption and the sound effects can land on a character. Flat skin counts as an empty area. Pick the caption placement by hand, and press `Move SFX` until the effects sit well.
 - No emoji fallback font.

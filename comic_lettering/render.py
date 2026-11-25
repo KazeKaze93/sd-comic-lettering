@@ -18,7 +18,9 @@ class Style(object):
     def __init__(self, font="Comic Relief Bold", uppercase=True, text_color="auto",
                  stroke_color="auto", stroke_width=0.12, shadow=0.5, line_spacing=1.08,
                  rotation=0.0, jitter=0.3, arc=0.0, soften=0.4, grain=0.0, opacity=1.0,
-                 free_size=5.5, bubble_size=9.0, bubble_min_size=1.5, margin=0.08, seed=0):
+                 free_size=5.5, bubble_size=9.0, bubble_min_size=1.5, margin=0.08, seed=0,
+                 sfx_font="Bangers", sfx_size=7.0, sfx_color="auto", sfx_tilt=15.0,
+                 sfx_opacity=0.95, sfx_seed=0):
         self.font = font
         self.uppercase = uppercase
         self.text_color = text_color      # "auto" or "#RRGGBB"
@@ -37,6 +39,12 @@ class Style(object):
         self.bubble_min_size = bubble_min_size  # mode auto: smallest readable size, % of height
         self.margin = margin              # bubble: gap to the edge, fraction of bubble size
         self.seed = seed
+        self.sfx_font = sfx_font          # sound effects: their own font
+        self.sfx_size = sfx_size          # font size, % of image height
+        self.sfx_color = sfx_color        # "auto" (white with a dark outline) or "#RRGGBB"
+        self.sfx_tilt = sfx_tilt          # each effect is tilted by up to this many degrees
+        self.sfx_opacity = sfx_opacity
+        self.sfx_seed = sfx_seed          # changes where the effects land and how they tilt
 
 
 def parse_color(value, default):
