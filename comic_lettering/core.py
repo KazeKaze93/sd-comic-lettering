@@ -106,12 +106,14 @@ def font_sample(style, text="", size=(640, 110)):
     paragraphs = parse_text(first[0] if first else SAMPLE_TEXT, style.uppercase)
     width, height = size
     image = Image.new("RGB", size, (112, 118, 126))
-    ImageDraw.Draw(image).rounded_rectangle([8, 8, width // 2 - 8, height - 8], radius=28,
-                                            fill=(250, 250, 250), outline=(15, 15, 15), width=4)
+    pad = max(3, height // 14)
+    ImageDraw.Draw(image).rounded_rectangle([pad, pad, width // 2 - pad, height - pad],
+                                            radius=height // 4, fill=(250, 250, 250),
+                                            outline=(15, 15, 15), width=max(2, height // 28))
     font_size = int(height * 0.36)
     while True:
         lines = layout(paragraphs, get_fonts(style, font_size), 10 ** 6)
-        if block_size(lines, font_size, style)[0] <= width / 2.0 - 48 or font_size <= 10:
+        if block_size(lines, font_size, style)[0] <= width / 2.0 - 6 * pad or font_size <= 8:
             break
         font_size -= 2
     bubble = render_block(lines, font_size, style, (0, 0, 0))

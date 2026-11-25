@@ -3,6 +3,7 @@
 The panel sits under the result gallery. Text can be applied to the images of the last
 generation without generating again, or automatically to every new image.
 """
+import base64
 import io
 import json
 import os
@@ -97,6 +98,15 @@ def run_letter(image, text, caption, numbers, s):
                   numbers=numbers)
 
 
+def sample_html(s, text=""):
+    """The font sample as a small inline image: fixed height, never stretched."""
+    buffer = io.BytesIO()
+    font_sample(make_style(s), text, size=(420, 56)).save(buffer, format="PNG")
+    data = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return ("<img src='data:image/png;base64,%s' alt='font sample' "
+            "style='height:56px;width:auto;max-width:100%%;border-radius:6px;margin-top:1.4em'>" % data)
+
+
 def note(message):
     return "<p style='margin:0.3em 0;opacity:0.8'>%s</p>" % message
 
@@ -127,23 +137,23 @@ class ComicLetteringScript(scripts.Script):
             deferred = False
         with panel:
             with gr.Row():
-                text = gr.Textbox(label="Bubbles", lines=3,
+                text = gr.Textbox(label="Bubbles", lines=2,
                                   placeholder="One line per bubble, top to bottom. "
                                               "An empty line skips a bubble. *word* = bigger.")
-                caption = gr.Textbox(label="Caption", lines=3,
+                caption = gr.Textbox(label="Caption", lines=2,
                                      placeholder="Text on the art, outside the bubbles.")
             with gr.Row():
-                apply_button = gr.Button("Apply to image", variant="primary")
-                save_button = gr.Button("Save result")
+                apply_button = gr.Button("Apply", variant="primary", size="sm", scale=1, min_width=80)
+                save_button = gr.Button("Save", size="sm", scale=1, min_width=80)
+                enabled = gr.Checkbox(label="Every new image", value=False, scale=2, min_width=140)
+                numbers = gr.Checkbox(label="Bubble numbers", value=False, scale=2, min_width=140)
             with gr.Row():
-                enabled = gr.Checkbox(label="Apply to every new image", value=False)
-                numbers = gr.Checkbox(label="Show bubble numbers", value=False)
+                font = gr.Dropdown(label="Font", choices=fonts, value=s["font"], scale=2, min_width=160)
+                placement = gr.Dropdown(label="Caption placement", choices=PLACEMENTS,
+                                        value=s["placement"], scale=1, min_width=110)
+                sample = gr.HTML(value=sample_html(s), elem_id="comic_lettering_sample_" + self.tab,
+                                 scale=3, min_width=200)
             status = gr.HTML(value="")
-            with gr.Row():
-                font = gr.Dropdown(label="Font", choices=fonts, value=s["font"])
-                placement = gr.Dropdown(label="Caption placement", choices=PLACEMENTS, value=s["placement"])
-            sample = gr.Image(value=font_sample(make_style(s)), show_label=False, interactive=False,
-                              type="pil", elem_id="comic_lettering_sample_" + self.tab)
             with gr.Accordion("Style", open=False):
                 with gr.Row():
                     uppercase = gr.Checkbox(label="Uppercase", value=s["uppercase"])
@@ -225,7 +235,7 @@ class ComicLetteringScript(scripts.Script):
         return STORE.setdefault(self.tab or ("img2img" if self.is_img2img else "txt2img"), {})
 
     def reply(self, message, s, text, caption, images=None):
-        result = [message, font_sample(make_style(s), text or caption)]
+        result = [message, sample_html(s, text or caption)]
         if self.gallery is not None:
             result.append(images if images is not None else gr.update())
         return result
