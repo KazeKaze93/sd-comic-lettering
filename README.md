@@ -28,7 +28,7 @@ Restart the host afterwards.
 ## Use
 
 - **ComfyUI**: add the `Comic Lettering` node (category `image/postprocessing`) between `VAE Decode` and `Save Image`.
-- **reForge**: open the `Comic Lettering` accordion in txt2img or img2img, tick `Enable`, type the text. Every generated image is lettered before it is saved.
+- **reForge**: open the `Comic Lettering` accordion in txt2img or img2img, tick `Enable`, type the text. Every generated image is lettered before it is saved. The font and the other options (all but `Enable` and the text) are remembered in `user_settings.json` after each generation.
 - **CLI**, for quick tests: `python -m comic_lettering in.png out.png --text "Hello"` from the repo folder.
 
 ### Text syntax
@@ -60,7 +60,7 @@ Restart the host afterwards.
 | `soften`, `grain`, `opacity` | Blur, uneven ink and transparency, to blend the letters with the art. |
 | `margin` | Gap between the text and the bubble edge. |
 | `erase_ai_text` | Erase the model's letters before writing. |
-| `white_threshold` | Darkest bubble fill that still counts (default 180). Lower it for darker gray bubbles, raise it if light clothing gets lettered. |
+| `white_threshold` | Darkest bubble fill that still counts (default 120). Raise it if a gray object gets lettered. |
 | `seed` | Seed of the jitter. |
 
 ## Fonts
@@ -69,7 +69,8 @@ Drop `.ttf` / `.otf` files into `fonts/` and restart. Font files are git-ignored
 
 ## Limits
 
-- Only light bubbles are detected: a flat white to light gray fill, a dark outline around most of the edge, and a smooth, nearly convex shape. Spiky or cloud-shaped bubbles and bubbles without an outline are not found.
+- A bubble is detected as a flat white or gray fill (any brightness above `white_threshold`), enclosed by a dark outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, bubbles with a gradient fill and rectangular caption boxes are not found.
+- Anything else that looks the same gets lettered too, such as a blank sheet of paper on a wall. Use `#` to see what was found and `-` to skip it.
 - A narrow bubble cannot hold a long word at a readable size. In mode `auto` such text becomes free text.
 - No face detection: free text can land on a character. Pick the placement by hand in that case.
 - No emoji fallback font.

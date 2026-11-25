@@ -20,7 +20,7 @@ NUMBERS = "#"    # the whole text "#" draws each bubble's number instead of lett
 
 
 def letter(image, text, mode="auto", placement="auto", style=None, erase=True,
-           white_threshold=180, rtl=False):
+           white_threshold=120, rtl=False):
     # type: (Image.Image, str, str, str, Style, bool, int, bool) -> Tuple[Image.Image, Dict]
     """Letter an image.
 

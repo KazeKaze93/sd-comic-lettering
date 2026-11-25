@@ -20,7 +20,7 @@ class ComicLettering(object):
             "font": (font_names(),),
             "uppercase": ("BOOLEAN", {"default": True}),
             "bubble_size": num(9.0, 1.0, 30.0, 0.5),
-            "bubble_min_size": num(1.8, 0.5, 10.0, 0.1),
+            "bubble_min_size": num(1.5, 0.5, 10.0, 0.1),
             "free_size": num(5.5, 1.0, 30.0, 0.5),
             "text_color": ("STRING", {"default": "auto"}),
             "stroke_color": ("STRING", {"default": "auto"}),
@@ -34,7 +34,7 @@ class ComicLettering(object):
             "opacity": num(1.0, 0.1, 1.0, 0.05),
             "margin": num(0.08, 0.0, 0.3, 0.01),
             "erase_ai_text": ("BOOLEAN", {"default": True}),
-            "white_threshold": ("INT", {"default": 180, "min": 120, "max": 255}),
+            "white_threshold": ("INT", {"default": 120, "min": 40, "max": 255}),
             "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFF}),
         }}
 

@@ -37,26 +37,32 @@ def luminance(rgb):
     return rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
 
 
-def detect_bubbles(rgb, white_threshold=180, min_area=0.003, max_area=0.6,
-                   min_outline=0.5, rtl=False):
+def detect_bubbles(rgb, white_threshold=120, min_area=0.003, max_area=0.6,
+                   min_outline=0.8, rtl=False):
     # type: (np.ndarray, int, float, float, float, bool) -> List[Bubble]
     """Find speech bubbles in an RGB uint8 array.
 
-    A bubble is a light, unsaturated connected region that, once the letters inside
-    are filled in, is large enough, fairly solid, and mostly surrounded by a dark
-    outline. Models with a muted palette draw gray bubbles, so several brightness
-    levels are tried, from near-white down to white_threshold.
+    A bubble is a flat, unsaturated fill enclosed by a dark outline, with a smooth,
+    nearly convex shape. Its brightness does not matter beyond white_threshold: models
+    with a muted palette draw gray bubbles, sometimes darker than the wall behind.
     """
-    h, w = rgb.shape[:2]
-    lum = luminance(rgb.astype(np.float32))
-    levels = list(range(235, int(white_threshold), -20)) + [int(white_threshold)]
     found = []
-    for level in levels:
-        for bubble in _detect_at(rgb, lum, level, min_area, max_area, min_outline):
-            x0, y0, x1, y1 = bubble.bbox()
-            if not any(x0 <= b.cx < x1 and y0 <= b.cy < y1 for b in found):
-                found.append(bubble)
+    for item in scan(rgb, white_threshold, min_area, max_area):
+        if is_bubble(item, min_outline):
+            found.append(item["bubble"])
     return _reading_order(found, rtl)
+
+
+def is_bubble(item, min_outline=0.8):
+    """Thresholds measured on real generations: they tell a bubble from a pale face,
+    an ear, a wall patch or a picture frame, which are also light and outlined.
+
+    Real bubbles there: flatness up to 0.8, outline 0.88 or more, solidity 0.92 or
+    more. The nearest look-alikes: flatness 1.5 and up, or outline under 0.8.
+    """
+    return (item["flatness"] <= 1.3 and item["solidity"] >= 0.85
+            and 0.45 <= item["extent"] < 0.96 and item["outline"] >= min_outline
+            and item["body"] >= 0.55)
 
 
 def _reading_order(bubbles, rtl):
@@ -85,23 +91,25 @@ def _solidity(mask):
     return float(mask.sum()) / hull if hull > 0 else 0.0
 
 
-def _detect_at(rgb, lum, level, min_area, max_area, min_outline):
+def scan(rgb, floor=120, min_area=0.003, max_area=0.6):
+    """Yield every flat, unsaturated region with the measurements used to judge it."""
     h, w = rgb.shape[:2]
+    lum = luminance(rgb.astype(np.float32))
     mn = rgb.min(axis=2)
     mx = rgb.max(axis=2)
-    white = (mn >= level) & ((mx.astype(np.int16) - mn) <= 32)
-    labels, count = ndi.label(white)
+    local_range = ndi.maximum_filter(lum, size=3) - ndi.minimum_filter(lum, size=3)
+    flat = (local_range <= 8.0) & ((mx.astype(np.int16) - mn) <= 32) & (lum >= floor)
+    labels, count = ndi.label(flat)
     if count == 0:
-        return []
+        return
     areas = np.bincount(labels.ravel())
     total = h * w
-    found = []
     for idx, sl in enumerate(ndi.find_objects(labels), start=1):
         area = int(areas[idx])
         if area < total * min_area * 0.6 or area > total * max_area:
             continue
         ring_w = max(3, int(0.015 * np.sqrt(area)))
-        pad = ring_w + 2
+        pad = ring_w + 5
         y0 = max(0, sl[0].start - pad)
         y1 = min(h, sl[0].stop + pad)
         x0 = max(0, sl[1].start - pad)
@@ -111,23 +119,31 @@ def _detect_at(rgb, lum, level, min_area, max_area, min_outline):
         filled_area = int(filled.sum())
         if filled_area < total * min_area:
             continue
-        # A bubble is a flat fill with a smooth, nearly convex shape. This is what tells
-        # it from a pale face, an ear, or a patch of wall, which are also light and
-        # outlined. Thresholds come from measurements on real generations.
-        if float(rgb[y0:y1, x0:x1][comp].mean(axis=1).std()) > 6.0:
-            continue
-        if _solidity(filled) < 0.9:
-            continue
+        pixels = rgb[y0:y1, x0:x1][comp]
+        color = tuple(int(v) for v in np.median(pixels, axis=0))
+        fill_lum = color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114
         ys, xs = np.nonzero(filled)
         box = (ys.max() - ys.min() + 1) * (xs.max() - xs.min() + 1)
-        if filled_area / float(box) < 0.45:
-            continue
-        ring = ndi.binary_dilation(filled, iterations=ring_w) & ~filled
-        if not ring.any():
-            continue
-        # A real bubble has a dark outline around most of its edge.
-        if float((lum[y0:y1, x0:x1][ring] < 110).mean()) < min_outline:
-            continue
+        # Outline: the share of the perimeter that has a dark line right next to it.
+        # Measured along the edge, not by ring area, so a thin line counts in full.
+        # Where the region runs into the image border there is no line: that part
+        # counts as open.
+        reach = ring_w + 3
+        band = ndi.binary_dilation(filled, iterations=reach) & ~filled
+        dark = band & (lum[y0:y1, x0:x1] < min(110.0, fill_lum - 40.0))
+        edge = ndi.binary_dilation(filled) & ~filled
+        covered = int((ndi.binary_dilation(dark, iterations=reach) & edge).sum())
+        on_border = 0
+        if y0 == 0:
+            on_border += int(filled[0].sum())
+        if y1 == h:
+            on_border += int(filled[-1].sum())
+        if x0 == 0:
+            on_border += int(filled[:, 0].sum())
+        if x1 == w:
+            on_border += int(filled[:, -1].sum())
+        perimeter = int(edge.sum()) + on_border
+        outline = covered / float(perimeter) if perimeter else 0.0
         # Drop the tail: keep what survives an opening with a large radius.
         radius = max(2.0, 0.10 * np.sqrt(filled_area))
         dist = ndi.distance_transform_edt(np.pad(filled, 1))[1:-1, 1:-1]
@@ -140,11 +156,14 @@ def _detect_at(rgb, lum, level, min_area, max_area, min_outline):
             sizes[0] = 0
             core = core_labels == int(sizes.argmax())
         body = (ndi.distance_transform_edt(~core) <= radius) & filled
-        if body.sum() < 0.55 * filled_area:
-            continue
-        color = tuple(int(v) for v in np.median(rgb[y0:y1, x0:x1][comp], axis=0))
-        found.append(Bubble(y0, x0, comp, filled, body, color))
-    return found
+        yield {
+            "bubble": Bubble(y0, x0, comp, filled, body, color),
+            "flatness": float(pixels.mean(axis=1).std()),
+            "solidity": _solidity(filled),
+            "extent": filled_area / float(box),
+            "outline": outline,
+            "body": float(body.sum()) / filled_area,
+        }
 
 
 def erase_letters(rgb, bubble):
