@@ -15,14 +15,23 @@ MODES = ["auto", "bubble", "free"]
 PLACEMENTS = ["auto", "top", "bottom", "center"]
 
 
+SKIP = "-"       # a block that is just "-" leaves its bubble untouched
+NUMBERS = "#"    # the whole text "#" draws each bubble's number instead of lettering
+
+
 def letter(image, text, mode="auto", placement="auto", style=None, erase=True,
            white_threshold=180, rtl=False):
     # type: (Image.Image, str, str, str, Style, bool, int, bool) -> Tuple[Image.Image, Dict]
     """Letter an image.
 
     Text blocks are separated by a blank line. Each block goes into one bubble in
-    reading order. Blocks left without a bubble become free text (mode "auto") or are
-    dropped (mode "bubble"). Mode "free" skips detection.
+    reading order. A block that is just "-" skips its bubble. A block starting with
+    "N:" goes into bubble number N. The text "#" alone draws the bubble numbers.
+
+    Mode "auto": a block goes into a bubble only if it fits at a readable size
+    (style.bubble_min_size); a bubble too small for it is passed over, and blocks left
+    without a bubble become free text. Mode "bubble": always write into the bubbles,
+    however small, and drop the rest. Mode "free" skips detection.
     """
     style = style or Style()
     info = {"bubbles_found": 0, "bubbles_filled": 0, "free_text": False, "font_sizes": []}
@@ -30,23 +39,83 @@ def letter(image, text, mode="auto", placement="auto", style=None, erase=True,
     if not blocks:
         return image, info
     rgb = np.array(image.convert("RGB"))
+    height = rgb.shape[0]
     bubbles = [] if mode == "free" else detect_bubbles(rgb, white_threshold, rtl=rtl)
     info["bubbles_found"] = len(bubbles)
-    used = bubbles[:len(blocks)]
+    strict = mode == "auto"
+    if blocks == [NUMBERS]:
+        if not bubbles:
+            return image, info
+        blocks = ["%d: %d" % (i + 1, i + 1) for i in range(len(bubbles))]
+        erase = False
+        strict = False
+
+    def fit(index, block):
+        return _fit_bubble(height, bubbles[index], block, style, strict)
+
+    plans, rest = _assign(blocks, len(bubbles), fit)
     if erase:
-        for bubble in used:
-            erase_letters(rgb, bubble)
+        for index, _ in plans:
+            erase_letters(rgb, bubbles[index])
     out = Image.fromarray(rgb)
-    for bubble, block in zip(used, blocks):
-        out, size = _letter_bubble(out, bubble, block, style)
+    for index, (lines, size, cx, cy) in plans:
+        bubble = bubbles[index]
+        light = (bubble.color[0] * 0.299 + bubble.color[1] * 0.587 + bubble.color[2] * 0.114) > 128
+        fill = parse_color(style.text_color, (0, 0, 0) if light else (255, 255, 255))
+        out = paste_centered(out, render_block(lines, size, style, fill), cx, cy)
         info["font_sizes"].append(size)
-    info["bubbles_filled"] = len(used)
-    rest = blocks[len(used):]
+        info["bubbles_filled"] += 1
     if rest and mode != "bubble":
         out, size = _letter_free(out, rgb, "\n".join(rest), placement, style)
         info["free_text"] = True
         info["font_sizes"].append(size)
     return out.convert("RGB"), info
+
+
+def _assign(blocks, count, fit):
+    """Map text blocks to bubbles.
+
+    fit(index, text) returns a layout, or None if the text does not fit that bubble.
+    Returns ([(bubble index, layout)], leftover blocks).
+    """
+    taken = [False] * count
+    plans = []
+    rest = []
+    queue = []
+    for block in blocks:
+        match = re.match(r"^(\d+)[ \t]*:[ \t]*(.+)$", block, re.S)
+        if not match:
+            queue.append(block)
+            continue
+        index = int(match.group(1)) - 1
+        body = match.group(2).strip()
+        usable = 0 <= index < count and not taken[index]
+        if usable:
+            taken[index] = True
+        if body == SKIP:
+            continue
+        result = fit(index, body) if usable else None
+        if result is None:
+            rest.append(body)
+        else:
+            plans.append((index, result))
+    for block in queue:
+        placed = False
+        for index in range(count):
+            if taken[index]:
+                continue
+            taken[index] = True
+            if block == SKIP:
+                placed = True
+                break
+            result = fit(index, block)
+            if result is not None:
+                plans.append((index, result))
+                placed = True
+                break
+        if not placed and block != SKIP:
+            rest.append(block)
+    return plans, rest
 
 
 def _fits(lines, size, style, inner, cy, cx):
@@ -69,7 +138,12 @@ def _fits(lines, size, style, inner, cy, cx):
     return True
 
 
-def _letter_bubble(image, bubble, text, style):
+def _fit_bubble(image_height, bubble, text, style, strict):
+    """Largest layout of text that fits the bubble: (lines, size, cx, cy).
+
+    strict: return None when it only fits below the readable minimum. Otherwise fall
+    back to the smallest size even if it overflows.
+    """
     body = bubble.body
     ys, xs = np.nonzero(body)
     body_h = ys.max() - ys.min() + 1
@@ -80,25 +154,21 @@ def _letter_bubble(image, bubble, text, style):
         inner = body
     cy, cx = ndi.center_of_mass(inner)
     paragraphs = parse_text(text, style.uppercase)
-    smallest = max(8, int(0.012 * image.height))
-    size = max(smallest, int(style.bubble_size / 100.0 * image.height))
-    chosen = None
-    while chosen is None:
+    smallest = max(8, int(0.012 * image_height))
+    if strict:
+        smallest = max(smallest, int(round(style.bubble_min_size / 100.0 * image_height)))
+    size = max(smallest, int(style.bubble_size / 100.0 * image_height))
+    while True:
         fonts = get_fonts(style, size)
         for fraction in (0.95, 0.82, 0.7, 0.58, 0.46):
             lines = layout(paragraphs, fonts, body_w * fraction)
             if _fits(lines, size, style, inner, cy, cx):
-                chosen = lines
-                break
-        if chosen is None:
-            if size <= smallest:
-                chosen = layout(paragraphs, fonts, body_w * 0.82)  # does not fit: best effort
-                break
-            size = max(smallest, min(size - 1, int(size * 0.93)))
-    light = (bubble.color[0] * 0.299 + bubble.color[1] * 0.587 + bubble.color[2] * 0.114) > 128
-    fill = parse_color(style.text_color, (0, 0, 0) if light else (255, 255, 255))
-    layer = render_block(chosen, size, style, fill)
-    return paste_centered(image, layer, bubble.x0 + cx, bubble.y0 + cy), size
+                return lines, size, bubble.x0 + cx, bubble.y0 + cy
+        if size <= smallest:
+            if strict:
+                return None
+            return layout(paragraphs, fonts, body_w * 0.82), size, bubble.x0 + cx, bubble.y0 + cy
+        size = max(smallest, min(size - 1, int(size * 0.93)))
 
 
 def _letter_free(image, rgb, text, placement, style):

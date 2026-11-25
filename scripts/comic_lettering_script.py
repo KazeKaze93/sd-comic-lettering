@@ -24,7 +24,9 @@ class ComicLetteringScript(scripts.Script):
         with gr.Accordion("Comic Lettering", open=False):
             enabled = gr.Checkbox(label="Enable", value=False)
             text = gr.Textbox(label="Text", lines=4,
-                              placeholder="Blank line = next bubble. *word* = emphasis.")
+                              placeholder="Blank line = next bubble. *word* = emphasis. "
+                                          "\"-\" = skip a bubble. \"2: text\" = bubble number 2. "
+                                          "\"#\" alone = show bubble numbers.")
             with gr.Row():
                 mode = gr.Dropdown(label="Mode", choices=MODES, value="auto")
                 placement = gr.Dropdown(label="Free text placement", choices=PLACEMENTS, value="auto")
@@ -35,6 +37,7 @@ class ComicLetteringScript(scripts.Script):
             with gr.Row():
                 bubble_size = gr.Slider(label="Bubble: max font size, % of height", minimum=1, maximum=30, step=0.5, value=9)
                 free_size = gr.Slider(label="Free text: font size, % of height", minimum=1, maximum=30, step=0.5, value=5.5)
+            bubble_min_size = gr.Slider(label="Bubble: min readable font size, % of height (mode auto: smaller bubbles are passed over)", minimum=0.5, maximum=10, step=0.1, value=1.8)
             with gr.Row():
                 text_color = gr.Textbox(label="Text color (auto or #RRGGBB)", value="auto")
                 stroke_color = gr.Textbox(label="Stroke color (auto or #RRGGBB)", value="auto")
@@ -55,18 +58,18 @@ class ComicLetteringScript(scripts.Script):
                 seed = gr.Number(label="Jitter seed", value=0, precision=0)
         return [enabled, text, mode, placement, font, uppercase, erase, bubble_size, free_size,
                 text_color, stroke_color, stroke_width, shadow, jitter, arc, rotation, soften,
-                grain, opacity, margin, white_threshold, seed]
+                grain, opacity, margin, white_threshold, seed, bubble_min_size]
 
     def postprocess_image(self, p, pp, enabled, text, mode, placement, font, uppercase, erase,
                           bubble_size, free_size, text_color, stroke_color, stroke_width, shadow,
                           jitter, arc, rotation, soften, grain, opacity, margin, white_threshold,
-                          seed):
+                          seed, bubble_min_size=1.8):
         if not enabled or not (text or "").strip():
             return
         style = Style(font=font, uppercase=uppercase, text_color=text_color,
                       stroke_color=stroke_color, stroke_width=stroke_width, shadow=shadow,
                       rotation=rotation, jitter=jitter, arc=arc, soften=soften, grain=grain,
                       opacity=opacity, free_size=free_size, bubble_size=bubble_size,
-                      margin=margin, seed=int(seed or 0))
+                      bubble_min_size=bubble_min_size, margin=margin, seed=int(seed or 0))
         pp.image, _ = letter(pp.image, text, mode=mode, placement=placement, style=style,
                              erase=erase, white_threshold=int(white_threshold))

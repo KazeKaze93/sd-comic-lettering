@@ -18,7 +18,7 @@ class Style(object):
     def __init__(self, font="Comic Sans MS Bold", uppercase=True, text_color="auto",
                  stroke_color="auto", stroke_width=0.12, shadow=0.5, line_spacing=1.08,
                  rotation=0.0, jitter=0.3, arc=0.0, soften=0.4, grain=0.0, opacity=1.0,
-                 free_size=5.5, bubble_size=9.0, margin=0.08, seed=0):
+                 free_size=5.5, bubble_size=9.0, bubble_min_size=1.8, margin=0.08, seed=0):
         self.font = font
         self.uppercase = uppercase
         self.text_color = text_color      # "auto" or "#RRGGBB"
@@ -34,6 +34,7 @@ class Style(object):
         self.opacity = opacity
         self.free_size = free_size        # free text: font size, % of image height
         self.bubble_size = bubble_size    # bubble text: max font size, % of image height
+        self.bubble_min_size = bubble_min_size  # mode auto: smallest readable size, % of height
         self.margin = margin              # bubble: gap to the edge, fraction of bubble size
         self.seed = seed
 

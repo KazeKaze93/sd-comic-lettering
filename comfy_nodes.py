@@ -20,6 +20,7 @@ class ComicLettering(object):
             "font": (font_names(),),
             "uppercase": ("BOOLEAN", {"default": True}),
             "bubble_size": num(9.0, 1.0, 30.0, 0.5),
+            "bubble_min_size": num(1.8, 0.5, 10.0, 0.1),
             "free_size": num(5.5, 1.0, 30.0, 0.5),
             "text_color": ("STRING", {"default": "auto"}),
             "stroke_color": ("STRING", {"default": "auto"}),
@@ -41,7 +42,8 @@ class ComicLettering(object):
     FUNCTION = "run"
     CATEGORY = "image/postprocessing"
 
-    def run(self, image, text, mode, placement, font, uppercase, bubble_size, free_size,
+    def run(self, image, text, mode, placement, font, uppercase, bubble_size,
+            bubble_min_size, free_size,
             text_color, stroke_color, stroke_width, shadow, jitter, arc, rotation, soften,
             grain, opacity, margin, erase_ai_text, white_threshold, seed):
         if not text.strip():
@@ -50,7 +52,7 @@ class ComicLettering(object):
                       stroke_color=stroke_color, stroke_width=stroke_width, shadow=shadow,
                       rotation=rotation, jitter=jitter, arc=arc, soften=soften, grain=grain,
                       opacity=opacity, free_size=free_size, bubble_size=bubble_size,
-                      margin=margin, seed=seed)
+                      bubble_min_size=bubble_min_size, margin=margin, seed=seed)
         frames = []
         for frame in image:
             array = (frame[..., :3].cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)

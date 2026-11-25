@@ -3,6 +3,12 @@ from typing import List, Tuple
 
 import numpy as np
 from scipy import ndimage as ndi
+from scipy.spatial import ConvexHull
+
+try:
+    from scipy.spatial import QhullError
+except ImportError:  # scipy < 1.8
+    from scipy.spatial.qhull import QhullError
 
 
 class Bubble(object):
@@ -31,8 +37,8 @@ def luminance(rgb):
     return rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
 
 
-def detect_bubbles(rgb, white_threshold=180, min_area=0.008, max_area=0.6,
-                   min_outline=0.3, rtl=False):
+def detect_bubbles(rgb, white_threshold=180, min_area=0.003, max_area=0.6,
+                   min_outline=0.5, rtl=False):
     # type: (np.ndarray, int, float, float, float, bool) -> List[Bubble]
     """Find speech bubbles in an RGB uint8 array.
 
@@ -46,8 +52,7 @@ def detect_bubbles(rgb, white_threshold=180, min_area=0.008, max_area=0.6,
     levels = list(range(235, int(white_threshold), -20)) + [int(white_threshold)]
     found = []
     for level in levels:
-        for bubble in _detect_at(rgb, lum, level, min_area, max_area, min_outline,
-                                 allow_unoutlined=level >= 215):
+        for bubble in _detect_at(rgb, lum, level, min_area, max_area, min_outline):
             x0, y0, x1, y1 = bubble.bbox()
             if not any(x0 <= b.cx < x1 and y0 <= b.cy < y1 for b in found):
                 found.append(bubble)
@@ -70,7 +75,17 @@ def _reading_order(bubbles, rtl):
     return ordered
 
 
-def _detect_at(rgb, lum, level, min_area, max_area, min_outline, allow_unoutlined):
+def _solidity(mask):
+    """Area of the mask divided by the area of its convex hull."""
+    ys, xs = np.nonzero(mask ^ ndi.binary_erosion(mask))
+    try:
+        hull = ConvexHull(np.stack([xs, ys], axis=1)).volume
+    except (QhullError, ValueError):
+        return 0.0
+    return float(mask.sum()) / hull if hull > 0 else 0.0
+
+
+def _detect_at(rgb, lum, level, min_area, max_area, min_outline):
     h, w = rgb.shape[:2]
     mn = rgb.min(axis=2)
     mx = rgb.max(axis=2)
@@ -96,6 +111,13 @@ def _detect_at(rgb, lum, level, min_area, max_area, min_outline, allow_unoutline
         filled_area = int(filled.sum())
         if filled_area < total * min_area:
             continue
+        # A bubble is a flat fill with a smooth, nearly convex shape. This is what tells
+        # it from a pale face, an ear, or a patch of wall, which are also light and
+        # outlined. Thresholds come from measurements on real generations.
+        if float(rgb[y0:y1, x0:x1][comp].mean(axis=1).std()) > 6.0:
+            continue
+        if _solidity(filled) < 0.9:
+            continue
         ys, xs = np.nonzero(filled)
         box = (ys.max() - ys.min() + 1) * (xs.max() - xs.min() + 1)
         if filled_area / float(box) < 0.45:
@@ -103,13 +125,8 @@ def _detect_at(rgb, lum, level, min_area, max_area, min_outline, allow_unoutline
         ring = ndi.binary_dilation(filled, iterations=ring_w) & ~filled
         if not ring.any():
             continue
-        # A real bubble has a dark outline. Without one, accept it only if it has
-        # letters inside and still stands out from a darker surrounding.
-        ring_lum = lum[y0:y1, x0:x1][ring]
-        outlined = float((ring_lum < 110).mean()) >= min_outline
-        lettered = (filled_area - int(comp.sum())) >= 0.004 * filled_area
-        if not outlined and not (allow_unoutlined and lettered
-                                 and float((ring_lum < 150).mean()) >= min_outline):
+        # A real bubble has a dark outline around most of its edge.
+        if float((lum[y0:y1, x0:x1][ring] < 110).mean()) < min_outline:
             continue
         # Drop the tail: keep what survives an opening with a large radius.
         radius = max(2.0, 0.10 * np.sqrt(filled_area))

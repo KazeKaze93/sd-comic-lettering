@@ -34,8 +34,13 @@ Restart the host afterwards.
 ### Text syntax
 
 - A **blank line** starts the next bubble, in reading order (top to bottom, left to right).
+- A block that is just `-` skips its bubble.
+- A block starting with `2:` goes into bubble number 2, whatever its position in the text.
+- The text `#` alone draws each bubble's number, to see the order before writing.
+- A word may break after a hyphen (`H-m-m`) when that lets the text be bigger.
 - `*word*` makes a word bigger.
 - More text blocks than bubbles: the rest becomes free text (mode `auto`) or is dropped (mode `bubble`).
+- Mode `auto` writes into a bubble only if the text fits at a readable size (`bubble_min_size`). A bubble too small for it is passed over, and the text becomes free text. Mode `bubble` always writes into the bubbles, however small.
 
 ### Options
 
@@ -46,6 +51,7 @@ Restart the host afterwards.
 | `font` | Fonts from `fonts/` first, then comic-looking system fonts. |
 | `uppercase` | Comic-style capitals. |
 | `bubble_size` | Bubble text: largest font size tried, % of image height. The biggest size that fits is used. |
+| `bubble_min_size` | Mode `auto`: smallest font size still considered readable, % of image height. |
 | `free_size` | Free text: font size, % of image height. |
 | `text_color`, `stroke_color` | `auto` or `#RRGGBB`. |
 | `stroke_width`, `shadow` | Outline and drop shadow. Free text only. |
@@ -63,6 +69,7 @@ Drop `.ttf` / `.otf` files into `fonts/` and restart. Font files are git-ignored
 
 ## Limits
 
-- Only light bubbles are detected: white to light gray with a dark outline, or near-white without an outline but with letters inside. Any other light, outlined, blob-shaped area (a white shirt) can be mistaken for a bubble.
+- Only light bubbles are detected: a flat white to light gray fill, a dark outline around most of the edge, and a smooth, nearly convex shape. Spiky or cloud-shaped bubbles and bubbles without an outline are not found.
+- A narrow bubble cannot hold a long word at a readable size. In mode `auto` such text becomes free text.
 - No face detection: free text can land on a character. Pick the placement by hand in that case.
 - No emoji fallback font.
