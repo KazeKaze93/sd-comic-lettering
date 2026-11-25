@@ -15,7 +15,7 @@ EMPHASIS_SCALE = 1.3
 class Style(object):
     """Lettering options shared by both hosts. Sizes are relative, so they scale with the image."""
 
-    def __init__(self, font="Comic Sans MS Bold", uppercase=True, text_color="auto",
+    def __init__(self, font="Comic Relief Bold", uppercase=True, text_color="auto",
                  stroke_color="auto", stroke_width=0.12, shadow=0.5, line_spacing=1.08,
                  rotation=0.0, jitter=0.3, arc=0.0, soften=0.4, grain=0.0, opacity=1.0,
                  free_size=5.5, bubble_size=9.0, bubble_min_size=1.5, margin=0.08, seed=0):

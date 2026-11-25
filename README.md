@@ -80,7 +80,14 @@ A line goes into a bubble only if it fits at a readable size (`bubble_min_size`)
 
 ## Fonts
 
-Drop `.ttf` / `.otf` files into `fonts/` and restart. Font files are git-ignored.
+Sixteen fonts ship in `fonts/bundled/`, taken from [google/fonts](https://github.com/google/fonts). Their licenses (SIL Open Font License 1.1 or Apache 2.0) are in `fonts/bundled/licenses/`.
+
+![Bundled fonts](docs/fonts.png)
+
+- With Cyrillic: Amatic SC Bold, Bad Script, Balsamiq Sans Bold, Comic Relief Bold (the default), Marck Script, Neucha, Pangolin, Russo One.
+- Latin only: Bangers, Chewy, Comic Neue Bold, Creepster, Gloria Hallelujah, Luckiest Guy, Patrick Hand, Permanent Marker.
+
+Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are git-ignored. A few comic-looking system fonts are listed last.
 
 ## Limits
 
