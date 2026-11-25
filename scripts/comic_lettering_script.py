@@ -17,7 +17,7 @@ _BASE = scripts.basedir()
 if _BASE not in sys.path:
     sys.path.append(_BASE)
 
-from comic_lettering import PLACEMENTS, Style, font_names, font_sample, letter  # noqa: E402
+from comic_lettering import PLACEMENTS, Style, font_names, font_sample, letter, list_fonts  # noqa: E402
 
 SETTINGS_FILE = os.path.join(_BASE, "user_settings.json")
 
@@ -107,6 +107,33 @@ def sample_html(s, text=""):
             "style='height:56px;width:auto;max-width:100%%;border-radius:6px;margin-top:1.4em'>" % data)
 
 
+def fonts_css():
+    """CSS that draws every entry of the font list in its own font.
+
+    Fonts inside the web UI folder are fetched through the host's file route; system
+    fonts are picked up by name from the browser's machine.
+    """
+    try:
+        from urllib.parse import quote
+    except ImportError:  # Python 2 never runs this; keeps linters quiet on old hosts
+        from urllib import quote
+    app_dir = os.path.abspath(os.getcwd())
+    rules = []
+    for index, (name, path) in enumerate(list_fonts().items()):
+        family = "sdcl-font-%d" % index
+        full = os.path.abspath(path)
+        if full.lower().startswith(app_dir.lower() + os.sep):
+            relative = os.path.relpath(full, app_dir).replace(os.sep, "/")
+            source = "url('file=%s?%d')" % (quote(relative), int(os.path.getmtime(full)))
+        else:
+            source = "local('%s')" % name.replace("'", "")
+        value = name.replace("\\", "\\\\").replace('"', '\\"')
+        rules.append("@font-face{font-family:'%s';src:%s;font-display:swap}" % (family, source))
+        rules.append('li.item[data-value="%s"]{font-family:\'%s\',sans-serif;font-size:17px;'
+                     'line-height:1.5}' % (value, family))
+    return "<style>%s</style>" % "".join(rules)
+
+
 def note(message):
     return "<p style='margin:0.3em 0;opacity:0.8'>%s</p>" % message
 
@@ -137,10 +164,10 @@ class ComicLetteringScript(scripts.Script):
             deferred = False
         with panel:
             with gr.Row():
-                text = gr.Textbox(label="Bubbles", lines=2,
+                text = gr.Textbox(label="Bubbles", lines=2, max_lines=6,
                                   placeholder="One line per bubble, top to bottom. "
                                               "An empty line skips a bubble. *word* = bigger.")
-                caption = gr.Textbox(label="Caption", lines=2,
+                caption = gr.Textbox(label="Caption", lines=2, max_lines=6,
                                      placeholder="Text on the art, outside the bubbles.")
             with gr.Row():
                 apply_button = gr.Button("Apply", variant="primary", size="sm", scale=1, min_width=80)
@@ -154,6 +181,7 @@ class ComicLetteringScript(scripts.Script):
                 sample = gr.HTML(value=sample_html(s), elem_id="comic_lettering_sample_" + self.tab,
                                  scale=3, min_width=200)
             status = gr.HTML(value="")
+            gr.HTML(value=fonts_css(), visible=True, elem_id="comic_lettering_fonts_css_" + self.tab)
             with gr.Accordion("Style", open=False):
                 with gr.Row():
                     uppercase = gr.Checkbox(label="Uppercase", value=s["uppercase"])

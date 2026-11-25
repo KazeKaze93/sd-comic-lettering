@@ -35,7 +35,7 @@ The `Comic Lettering` panel sits under the result gallery, in txt2img and img2im
 2. Type the text and press **Apply**. The images of the last generation are lettered again from their clean copies, so nothing is generated twice. Change the text, the font or any option and press Apply again.
 3. Press **Save** to write the lettered images to the output folder with a `-lettered` suffix. The gallery's own save button works too.
 
-Tick **Every new image** to letter images during generation instead. Changing the font re-applies the text at once and updates the sample strip under the font list. The font and the options under `Style` are remembered in `user_settings.json`.
+Tick **Every new image** to letter images during generation instead. Every entry of the font list is drawn in its own font. Changing the font re-applies the text at once and updates the sample strip next to the list. The font and the options under `Style` are remembered in `user_settings.json`.
 
 ### ComfyUI
 
