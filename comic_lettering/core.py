@@ -491,14 +491,13 @@ def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=No
     """A place for a box: (x, y, clear, score).
 
     Candidates clear of the static obstacles (bubbles, characters) and not among the
-    busiest third of them are all acceptable; rng picks a random point of the image
-    and the candidate nearest to it wins, so repeated picks spread over the whole art.
-    The choice depends only on the image and the box, so it stays put when styles
-    change. If the pick collides with `taken` (the caption, earlier effects), the next
-    nearest free one is used.
-
-    When nothing is clear, the box goes where it covers the least, and `heavy` (heads,
-    bubbles) counts several times more than the rest; score tells how bad that is.
+    busiest third of them are preferred; rng picks a random point of the image and the
+    candidate nearest to it wins, so repeated picks spread over the whole art. The
+    choice depends only on the image and the box, so it stays put when styles change.
+    A place that collides with `taken` (the caption, earlier effects) is never used
+    while any other is left: the search widens to every clear place, then to places
+    on a character, where `heavy` (heads, bubbles) counts several times more than the
+    rest. clear tells whether a clear place existed; score how much is covered if not.
     static, taken and heavy are summed-area tables; taken and heavy may be None.
     """
     box_w, box_h = int(box_w), int(box_h)
@@ -516,26 +515,37 @@ def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=No
 
     cost = boxes(energy)
     blocked = boxes(static)
+    penalty = cost + 1000.0 * blocked
+    if heavy is not None:
+        penalty = penalty + 6000.0 * boxes(heavy)
     clear = np.nonzero(blocked < 0.002)[0]
     found = len(clear) > 0
     target_x, target_y = rng.random() * width, rng.random() * height
+
+    def nearest(candidates):
+        center_x = xs[candidates % len(xs)] + box_w / 2.0
+        center_y = ys[candidates // len(xs)] + box_h / 2.0
+        return candidates[np.argsort((center_x - target_x) ** 2 + (center_y - target_y) ** 2)]
+
+    # Tiers of candidates, best first: calm and clear, any clear place, then anywhere,
+    # ordered by how little is covered. The first one free of `taken` wins, so two
+    # effects never share a place while there is room left anywhere.
+    tiers = []
     if found:
-        calm = clear[cost[clear] <= np.quantile(cost[clear], 0.7)]
-        center_x = xs[calm % len(xs)] + box_w / 2.0
-        center_y = ys[calm // len(xs)] + box_h / 2.0
-        order = calm[np.argsort((center_x - target_x) ** 2 + (center_y - target_y) ** 2)]
-        score = 0.0
-    else:
-        total = cost + 1000.0 * blocked
-        if heavy is not None:
-            total = total + 6000.0 * boxes(heavy)
-        order = np.argsort(total)[:max(1, int(total.size * 0.02))]
-        score = float(total[order[0]])
-    pick = int(order[0])
+        tiers.append(nearest(clear[cost[clear] <= np.quantile(cost[clear], 0.7)]))
+        tiers.append(nearest(clear))
+    tiers.append(np.argsort(penalty))
+    score = 0.0 if found else float(penalty.min())
+    pick = int(tiers[0][0])
     if taken is not None:
-        busy = boxes(taken)[order]
-        free = np.nonzero(busy < 0.002)[0]
-        pick = int(order[free[0]]) if len(free) else int(order[int(np.argmin(busy))])
+        busy = boxes(taken)
+        for tier in tiers:
+            free = tier[busy[tier] < 0.002]
+            if len(free):
+                pick = int(free[0])
+                break
+        else:
+            pick = int(np.argmin(busy + penalty * 1e-6))
     return int(xs[pick % len(xs)]), int(ys[pick // len(xs)]), found, score
 
 
@@ -582,7 +592,6 @@ def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy, precious
         nominal_h = int(min(height * 0.9, size * (1.4 if count == 1 else 0.75 * count + 0.8)))
         x, y, _, _ = _calm_spot(energy, static_table, _integral(taken), nominal_w, nominal_h, width, height,
                                 place, heavy)
-        taken[max(0, y):y + nominal_h, max(0, x):x + nominal_w] = True
         if count > 1:
             # "FAP x5": the word several times in a ragged column.
             rows = []
@@ -616,6 +625,14 @@ def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy, precious
         # An effect made of symbols alone gets no marks around it: hearts around hearts.
         plain = [ch for ch in word if not ch.isspace() and ch != "*"]
         kind = None if plain and all(ch in SYMBOLS for ch in plain) else EXTRAS.get(style.sfx_extras)
-        layer = decorate(layer, kind, size, paint, seed, static, (cx, cy))
+        # Marks keep off the characters, the bubbles and the effects placed so far.
+        layer = decorate(layer, kind, size, paint, seed, static | taken, (cx, cy))
         image = paste_centered(image, layer, cx, cy)
+        # Reserve what was really drawn, marks included, with a gap: the box the next
+        # effect is placed by is only an estimate, and two effects must not touch.
+        drawn = layer.getbbox() or (0, 0, layer.width, layer.height)
+        left, top = cx - layer.width / 2.0, cy - layer.height / 2.0
+        gap = int(0.45 * size)
+        taken[max(0, int(top + drawn[1]) - gap):max(0, int(top + drawn[3]) + gap),
+              max(0, int(left + drawn[0]) - gap):max(0, int(left + drawn[2]) + gap)] = True
     return image
