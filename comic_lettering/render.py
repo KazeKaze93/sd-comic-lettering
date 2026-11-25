@@ -7,6 +7,8 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 from scipy import ndimage as ndi
 
+from functools import lru_cache
+
 from .fonts import load_font
 
 EMPHASIS_SCALE = 1.3
@@ -31,8 +33,8 @@ MOODS = {
     "calm": dict(jitter=0.08, size_jitter=0.0, line_tilt=0.0, line_shift=0.0, line_spacing=1.08, rough=0.0),
     "playful": dict(jitter=0.35, size_jitter=0.2, line_tilt=3.0, line_shift=0.15, line_spacing=1.12, rough=0.0),
     "shout": dict(jitter=0.5, size_jitter=0.45, line_tilt=5.0, line_shift=0.25, line_spacing=1.05, rough=0.15),
-    "shaky": dict(jitter=1.0, size_jitter=0.25, line_tilt=2.0, line_shift=0.1, line_spacing=1.05, rough=0.6),
-    "rough": dict(jitter=0.3, size_jitter=0.1, line_tilt=1.0, line_shift=0.05, line_spacing=1.05, rough=1.0),
+    "shaky": dict(jitter=2.2, size_jitter=0.4, line_tilt=3.0, line_shift=0.15, line_spacing=1.1, rough=0.5),
+    "rough": dict(jitter=0.3, size_jitter=0.1, line_tilt=1.0, line_shift=0.05, line_spacing=1.05, rough=1.3),
     "custom": None,
 }
 
@@ -118,7 +120,8 @@ class Paint(object):
     """Colors of one piece of lettering."""
 
     def __init__(self, fill, stroke=None, stroke_px=0, outer=None, outer_px=0, fill2=None,
-                 glow=None, shadow=0.0):
+                 glow=None, shadow=0.0, bold_px=0):
+        self.bold_px = bold_px    # thickens the fill itself, for thin fonts
         self.fill = fill
         self.fill2 = fill2        # bottom color of a vertical gradient
         self.stroke = stroke
@@ -178,6 +181,19 @@ def parse_text(text, uppercase):
 
 def get_fonts(style, size):
     return load_font(style.font, size), load_font(style.font, int(round(size * EMPHASIS_SCALE)))
+
+
+@lru_cache(maxsize=128)
+def stem_ratio(font_name):
+    """Stroke thickness of a font relative to its size: about 0.05 thin, 0.15 bold."""
+    font = load_font(font_name, 200)
+    image = Image.new("L", (400, 400), 0)
+    ImageDraw.Draw(image).text((100, 300), "I", font=font, fill=255, anchor="ls")
+    rows = (np.asarray(image) > 128).sum(axis=1)
+    rows = rows[rows > 0]
+    if len(rows) < 8:
+        return 0.12
+    return float(np.median(rows[len(rows) // 4: 3 * len(rows) // 4])) / 200.0
 
 
 def pieces(word):
@@ -352,7 +368,7 @@ def _note():
 
 def _anger():
     polygons = []
-    corner = [(0.56, 0.44), (0.56, 0.1), (0.68, 0.1), (0.68, 0.32), (0.9, 0.32), (0.9, 0.44)]
+    corner = [(0.57, 0.43), (0.57, 0.04), (0.75, 0.04), (0.75, 0.25), (0.96, 0.25), (0.96, 0.43)]
     for quarter in range(4):
         angle = math.pi / 2 * quarter
         polygons.append([(0.5 + (x - 0.5) * math.cos(angle) - (y - 0.5) * math.sin(angle),
@@ -402,13 +418,20 @@ def _gradient(top, bottom, mask):
     return layer
 
 
-def _roughen(masks, amount, size, seed):
-    """Push the letter edges around with noise: ragged where it is smooth, angular where it is blocky."""
+def _roughen(masks, amount, size, seed, stem=0.15):
+    """Push the letter edges around with noise: ragged where it is smooth, angular where it is blocky.
+
+    Both the grain of the noise and its reach follow the stroke thickness of the font
+    (stem, relative to the size): a thin font gets a fine, shallow tremor that shows
+    on its hairlines without shredding them; a bold one gets big bites.
+    """
     if amount <= 0:
         return masks
     width, height = masks[0].size
     state = np.random.RandomState(seed % (2 ** 32))
-    cell = max(2, int(size * 0.16))
+    stem = max(0.04, min(0.16, stem))
+    cell = max(2, int(size * stem * 1.1))
+    reach = size * min(0.07, 0.75 * stem)
     grid = (height // cell + 2, width // cell + 2)
 
     def field():
@@ -419,7 +442,7 @@ def _roughen(masks, amount, size, seed):
         sh, sw = min(height, smooth.shape[0]), min(width, smooth.shape[1])
         canvas[:sh, :sw] = 0.55 * smooth[:sh, :sw]
         canvas += 0.45 * blocky[:height, :width]
-        return canvas * amount * size * 0.07
+        return canvas * amount * reach
 
     rows, cols = np.mgrid[0:height, 0:width].astype(np.float32)
     coords = [rows + field(), cols + field()]
@@ -486,11 +509,11 @@ def render_block(lines, size, style, paint):
     rng = random.Random(style.seed)
     heights = line_heights(lines, size, style)
     block_w, block_h = block_size(lines, size, style)
-    grows = [0]
+    grows = [paint.bold_px]
     if paint.stroke_px > 0:
-        grows.append(paint.stroke_px)
+        grows.append(paint.bold_px + paint.stroke_px)
         if paint.outer_px > 0:
-            grows.append(paint.stroke_px + paint.outer_px)
+            grows.append(paint.bold_px + paint.stroke_px + paint.outer_px)
     reach = grows[-1]
     sway = abs(style.line_shift) * size + math.sin(math.radians(min(45.0, abs(style.line_tilt)))) * block_w / 2.0
     pad = int(size * 1.0 + reach + abs(style.arc * size * 0.9) + sway + size * 0.3 * style.size_jitter)
@@ -520,7 +543,7 @@ def render_block(lines, size, style, paint):
                 mask.paste(255, (int(round(pad + block_w / 2.0 + shift - turned.width / 2.0)),
                                  int(round(top + heights[index] / 2.0 - turned.height / 2.0))), turned)
         top += heights[index]
-    masks = _roughen(masks, style.rough, size, style.seed)
+    masks = _roughen(masks, style.rough, size, style.seed, stem_ratio(style.font))
     layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     ink_mask = masks[-1]
     if paint.glow is not None:
@@ -573,42 +596,59 @@ def _finish(layer, style):
 
 
 def decorate(layer, kind, size, paint, seed):
-    """Scatter small symbols (or motion lines) around a rendered block. Returns a larger layer."""
+    """Scatter marks (or action lines) around a rendered block.
+
+    Returns a larger layer with the block still in its center.
+    """
     if not kind:
         return layer
     rng = random.Random(seed * 7919 + 13)
-    margin = int(size * 1.25)
+    margin = int(size * 2.1)
     canvas = Image.new("RGBA", (layer.width + 2 * margin, layer.height + 2 * margin), (0, 0, 0, 0))
     bounds = layer.getbbox() or (0, 0, layer.width, layer.height)
     cx = margin + (bounds[0] + bounds[2]) / 2.0
     cy = margin + (bounds[1] + bounds[3]) / 2.0
-    rx = (bounds[2] - bounds[0]) / 2.0 + size * 0.45
-    ry = (bounds[3] - bounds[1]) / 2.0 + size * 0.4
     stroke = paint.stroke if paint.stroke is not None else (0, 0, 0)
     if kind == "motion":
+        # Action lines: tapered strokes bursting out from the block, all around it.
+        rx = (bounds[2] - bounds[0]) / 2.0 + size * 0.25
+        ry = (bounds[3] - bounds[1]) / 2.0 + size * 0.2
         draw = ImageDraw.Draw(canvas)
-        thick = max(2, int(size * 0.07))
-        for side in (-1, 1):
-            for row in range(3):
-                y = cy + (row - 1) * size * 0.42 + rng.uniform(-1, 1) * size * 0.08
-                x0 = cx + side * (rx + size * 0.05)
-                x1 = x0 + side * size * rng.uniform(0.45, 0.85)
-                for color, extra in ((stroke, thick), (paint.fill, 0)):
-                    draw.line([(x0, y), (x1, y + rng.uniform(-1, 1) * size * 0.06)],
-                              fill=tuple(color) + (255,), width=thick + extra)
+        count = max(12, int((rx + ry) / (size * 0.42)))
+        for index in range(count):
+            angle = 2 * math.pi * index / count + rng.uniform(-0.1, 0.1)
+            dx, dy = math.cos(angle), math.sin(angle)
+            start = 1.0 + rng.uniform(0.0, 0.1)
+            x0, y0 = cx + rx * start * dx, cy + ry * start * dy
+            length = size * rng.uniform(0.7, 1.5)
+            half = size * rng.uniform(0.08, 0.14)
+            wedge = [(x0 - dy * half, y0 + dx * half), (x0 + dy * half, y0 - dx * half),
+                     (x0 + dx * length, y0 + dy * length)]
+            draw.polygon(wedge, fill=tuple(stroke) + (255,))
+            inset = max(1.0, size * 0.03)
+            inner = [(x0 + dx * inset - dy * (half - inset), y0 + dy * inset + dx * (half - inset)),
+                     (x0 + dx * inset + dy * (half - inset), y0 + dy * inset - dx * (half - inset)),
+                     (x0 + dx * (length - 3 * inset), y0 + dy * (length - 3 * inset))]
+            draw.polygon(inner, fill=tuple(paint.fill) + (255,))
     else:
-        count = rng.randint(4, 6)
+        # Marks sit on a frame around the block, so none of them covers the letters.
+        rx = (bounds[2] - bounds[0]) / 2.0 + size * 0.7
+        ry = (bounds[3] - bounds[1]) / 2.0 + size * 0.7
+        count = rng.randint(5, 7)
         start = rng.uniform(0, 2 * math.pi)
         for index in range(count):
-            angle = start + 2 * math.pi * index / count + rng.uniform(-0.3, 0.3)
-            px = int(size * rng.uniform(0.3, 0.55))
-            grow = max(1, int(px * 0.13))
+            angle = start + 2 * math.pi * index / count + rng.uniform(-0.25, 0.25)
+            px = int(size * rng.uniform(0.5, 0.85))
+            grow = max(2, int(px * 0.12))
             tile = Image.alpha_composite(_solid(stroke, symbol_tile(kind, px, grow)),
                                          _solid(paint.fill, _pad_tile(symbol_tile(kind, px, 0), grow)))
             tile = tile.rotate(rng.uniform(-25, 25), resample=Image.BICUBIC, expand=True)
-            x = int(cx + rx * math.cos(angle) - tile.width / 2.0)
-            y = int(cy + ry * math.sin(angle) - tile.height / 2.0)
-            canvas.alpha_composite(tile, (max(0, x), max(0, y)))
+            reach = min(rx / max(1e-6, abs(math.cos(angle))), ry / max(1e-6, abs(math.sin(angle))))
+            x = int(cx + reach * math.cos(angle) - tile.width / 2.0)
+            y = int(cy + reach * math.sin(angle) - tile.height / 2.0)
+            x = max(0, min(x, canvas.width - tile.width))
+            y = max(0, min(y, canvas.height - tile.height))
+            canvas.alpha_composite(tile, (x, y))
     canvas.alpha_composite(layer, (margin, margin))
     return canvas
 

@@ -32,10 +32,23 @@ Restart the host afterwards.
 The `Comic Lettering` panel sits under the result gallery, in txt2img and img2img. It starts collapsed.
 
 1. Generate an image.
-2. Type the text and press **Apply**. The images of the last generation are lettered again from their clean copies, so nothing is generated twice. Change the text, the font or any option and press Apply again.
-3. Press **Save** to write the lettered images to the output folder with a `-lettered` suffix. The gallery's own save button works too.
+2. Type the text and press **Apply**. The images of the last generation are lettered again from their clean copies, so nothing is generated twice. Change the text and press Apply again; changing any list re-applies at once.
+3. Save the result with the gallery's own buttons, or right-click the image.
 
-Tick **Every new image** to letter images during generation instead. Every entry of the font list is drawn in its own font. Changing the font re-applies the text at once. The font and the options under `Style` are remembered in `user_settings.json`.
+| Button | What it does |
+|---|---|
+| `Apply` | Letters the images of the last generation. |
+| `Remove text` | Shows those images as they were generated, without any lettering. |
+| `Move SFX` | Puts the sound effects somewhere else. |
+| `Reset options` | Puts every list and slider back to its default. |
+| `Clear bubbles` / `caption` / `sfx` | Empties that text field. |
+| `♥` `★` `✦` `♪` `💢` `💧` | Adds that mark to the field chosen under `Insert a symbol into`. |
+
+Tick **Every new image** to letter images during generation instead. The lists and the options under `Fine tuning` are remembered in `user_settings.json`; the texts and the two checkboxes are not.
+
+### Keeping off the characters
+
+Text that is placed automatically (the sound effects, the caption and the drawn bubble with `auto` placement) avoids the characters when two things are present on the machine: the `ultralytics` package and a person segmentation model named `person_yolov8*-seg.pt`. ADetailer installs the package. The model is looked for in `models/adetailer`, `models/ultralytics/segm`, a StabilityMatrix `Models/Ultralytics/segm` folder and a sibling ComfyUI install; the `SDCL_PERSON_MODEL` environment variable can point at any other file. Nothing is downloaded. Without them the status line says so, and placement goes by calm areas alone, which often means on the character.
 
 ### ComfyUI
 
@@ -50,8 +63,8 @@ Add the `Comic Lettering` node (category `image/postprocessing`) between `VAE De
 Three fields:
 
 - **Bubbles**: one line per bubble, in reading order (top to bottom, left to right). An empty line skips a bubble. Line breaks inside a bubble are placed automatically, at the largest font size that fits, and so that the lines form a diamond: short at the top and bottom, long in the middle.
-- **Caption**: text drawn straight onto the art, outside the bubbles, or inside a bubble drawn for it. With `auto` placement it takes the calmer of top and bottom and keeps off the bubbles.
-- **SFX**: sound effects, one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the caption and the other effects. `FAP x5` stacks the word five times in a ragged column. **Move SFX** puts them somewhere else; press it until they sit well.
+- **Caption**: text drawn straight onto the art, outside the bubbles, or inside a bubble drawn for it. With `auto` placement it takes the calmer of top and bottom, keeps off the bubbles and avoids covering a head.
+- **SFX**: sound effects, one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the characters, the caption and the other effects. `FAP x5` stacks the word five times in a ragged column. **Move SFX** puts them somewhere else. Changing the look of an effect does not move it.
 
 In any field:
 
@@ -117,5 +130,6 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 - A bubble is detected as a flat white or gray fill (any brightness above `white_threshold`) enclosed by a dark outline, or a flat near-black fill enclosed by a bright outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, translucent or gradient bubbles and rectangular caption boxes are not found. Dark bubbles are calibrated on a single example: expect misses.
 - Anything else that looks the same gets lettered too, such as a blank sheet of paper on a wall. Use `Bubble numbers` to see what was found and an empty line to skip it.
 - A narrow bubble cannot hold a long word at a readable size. Such text goes to the caption.
-- No face detection: the caption and the sound effects can land on a character. Flat skin counts as an empty area. Pick the caption placement by hand, and press `Move SFX` until the effects sit well.
+- When a character fills most of the frame there may be no free place: a drawn bubble is then shrunk, down to 60%, and put where it covers the least. A caption with a fixed placement (`top`, a corner) avoids nothing.
+- The place of a sound effect is chosen for an estimated box, so a very wide font can make two effects touch.
 - No emoji fallback font.

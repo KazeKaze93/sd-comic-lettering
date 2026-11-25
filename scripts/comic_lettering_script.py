@@ -23,6 +23,10 @@ from comic_lettering.render import (BUBBLE_SHAPES, BUBBLE_THEMES, EXTRAS, MOODS,
 SETTINGS_FILE = os.path.join(_BASE, "user_settings.json")
 SAME_FONT = "same as bubbles"
 SFX_FONT = "Bangers"
+FIELDS = ["Bubbles", "Caption", "SFX"]
+# Marks that are drawn as shapes; the buttons insert them, since a keyboard cannot.
+SYMBOLS = [(u"\u2665", "heart"), (u"\u2605", "star"), (u"\u2726", "sparkle"), (u"\u266a", "note"),
+           (u"\U0001F4A2", "anger"), (u"\U0001F4A7", "drop")]
 
 # Everything except the texts and the two action checkboxes is remembered between sessions.
 DEFAULTS = {
@@ -161,6 +165,27 @@ def fonts_css():
     return "<style>%s</style>" % "".join(rules)
 
 
+def insert_symbol(where, mark, bubbles, caption, sfx):
+    """Append a mark to the chosen field."""
+    values = [bubbles or "", caption or "", sfx or ""]
+    index = FIELDS.index(where) if where in FIELDS else 2
+    current = values[index]
+    values[index] = current + ("" if not current or current.endswith((" ", "\n")) else " ") + mark
+    return values
+
+
+def describe(info):
+    """One line on what was done with an image."""
+    message = "Bubbles found: %d, filled: %d%s%s." % (
+        info.get("bubbles_found", 0), info.get("bubbles_filled", 0),
+        ", plus a caption" if info.get("free_text") else "",
+        ", SFX: %d" % info["sfx"] if info.get("sfx") else "")
+    if info.get("characters") is False:
+        message += (" Character detection is off (no ultralytics or no person_yolov8*-seg.pt found),"
+                    " so text may land on a character.")
+    return message
+
+
 def note(message):
     return "<p style='margin:0.3em 0;opacity:0.8'>%s</p>" % message
 
@@ -209,11 +234,22 @@ class ComicLetteringScript(scripts.Script):
                                              "Drawn big and tilted in an empty spot. "
                                              u"♥ ★ ♪ work as symbols.")
             with gr.Row():
-                apply_button = gr.Button("Apply", variant="primary", size="sm", scale=1, min_width=80)
-                save_button = gr.Button("Save", size="sm", scale=1, min_width=80)
-                shuffle_button = gr.Button("Move SFX", size="sm", scale=1, min_width=90)
-                enabled = gr.Checkbox(label="Every new image", value=False, scale=2, min_width=140)
-                numbers = gr.Checkbox(label="Bubble numbers", value=False, scale=2, min_width=140)
+                clear_buttons = [gr.Button("Clear " + name.lower(), size="sm", min_width=80) for name in FIELDS]
+            with gr.Row():
+                target = gr.Radio(label="Insert a symbol into", choices=FIELDS, value="SFX", scale=3,
+                                  min_width=300)
+                with gr.Column(scale=2, min_width=240):  # a column, so the buttons keep their height
+                    with gr.Row():
+                        symbol_buttons = [(gr.Button(symbol, size="sm", min_width=36), symbol)
+                                          for symbol, _ in SYMBOLS]
+            with gr.Row():
+                apply_button = gr.Button("Apply", variant="primary", size="sm", min_width=80)
+                clean_button = gr.Button("Remove text", size="sm", min_width=80)
+                shuffle_button = gr.Button("Move SFX", size="sm", min_width=80)
+                reset_button = gr.Button("Reset options", size="sm", min_width=80)
+            with gr.Row():
+                enabled = gr.Checkbox(label="Every new image", value=False, min_width=160)
+                numbers = gr.Checkbox(label="Bubble numbers", value=False, min_width=160)
             status = gr.HTML(value="")
             with gr.Row():
                 pick("font", "Bubbles: font", fonts)
@@ -280,12 +316,13 @@ class ComicLetteringScript(scripts.Script):
         remembered = [c[key] for key in ORDER]
         controls = [enabled, text, caption, numbers, sfx] + remembered
         # The values live in user_settings.json; keep the host's ui-config.json out of it.
-        for component in controls + [status]:
+        for component in controls + [status, target]:
             component.do_not_save_to_config = True
         self.panel = panel
         self.rendered = not deferred
-        self.parts = {"apply": apply_button, "save": save_button, "shuffle": shuffle_button,
-                      "status": status, "text": text, "caption": caption, "sfx": sfx,
+        self.parts = {"apply": apply_button, "clean": clean_button, "shuffle": shuffle_button,
+                      "reset": reset_button, "clear": clear_buttons, "symbols": symbol_buttons,
+                      "target": target, "status": status, "text": text, "caption": caption, "sfx": sfx,
                       "numbers": numbers, "remembered": remembered, "sfx_seed": c["sfx_seed"],
                       "instant": [c[key] for key in ORDER if isinstance(c[key], gr.Dropdown)]}
         if not deferred:
@@ -293,8 +330,18 @@ class ComicLetteringScript(scripts.Script):
         return controls
 
     def after_component(self, component, **kwargs):
-        if self.tab and kwargs.get("elem_id") == self.tab + "_gallery":
+        if not self.tab:
+            return
+        if kwargs.get("elem_id") == self.tab + "_gallery":
             self.gallery = component
+        elif kwargs.get("elem_id") == "generation_info_" + self.tab and self.rendered:
+            # This hidden box changes after every generation: refresh the status line
+            # then, so it never describes the previous image.
+            try:
+                component.change(fn=self.generation_status, inputs=[], outputs=[self.parts["status"]],
+                                 show_progress=False)
+            except Exception:  # optional; never break the UI over it
+                pass
 
     def before_component(self, component, **kwargs):
         # Render the panel between the gallery buttons and the generation info.
@@ -313,7 +360,14 @@ class ComicLetteringScript(scripts.Script):
         for dropdown in parts["instant"]:  # every list re-applies at once
             dropdown.change(fn=self.apply_quiet, inputs=inputs, outputs=outputs)
         parts["shuffle"].click(fn=self.move_sfx, inputs=inputs, outputs=outputs + [parts["sfx_seed"]])
-        parts["save"].click(fn=self.save_now, inputs=[], outputs=[parts["status"]])
+        parts["clean"].click(fn=self.show_clean, inputs=[], outputs=outputs)
+        parts["reset"].click(fn=self.reset_options, inputs=[], outputs=parts["remembered"])
+        fields = [parts["text"], parts["caption"], parts["sfx"]]
+        for button, field in zip(parts["clear"], fields):
+            button.click(fn=lambda: "", inputs=[], outputs=[field], show_progress=False)
+        for button, symbol in parts["symbols"]:
+            button.click(fn=lambda where, a, b, c, mark=symbol: insert_symbol(where, mark, a, b, c),
+                         inputs=[parts["target"]] + fields, outputs=fields, show_progress=False)
         # ui-config and the build-time values are stale after a browser reload: refresh
         # the remembered values from the settings file on every page load.
         try:
@@ -338,24 +392,39 @@ class ComicLetteringScript(scripts.Script):
         s = read_values(values)
         save_settings(s)
         sfx = sfx or ""
+        quiet = options.get("quiet")
         clean = self.store().get("clean") or []
+        empty = not (text or "").strip() and not (caption or "").strip() and not sfx.strip() and not numbers
+        if quiet and (empty or not clean):
+            # A list changed (also when the page loads and restores the settings) but
+            # there is nothing to draw: leave the gallery and the status alone.
+            return self.reply(gr.update())
         if not clean:
-            quiet = options.get("quiet")
-            return self.reply("" if quiet else note("Generate an image first: there is nothing to letter yet."))
-        if not (text or "").strip() and not (caption or "").strip() and not sfx.strip() and not numbers:
-            self.store()["results"] = None
+            return self.reply(note("Generate an image first: there is nothing to letter yet."))
+        if empty:
             return self.reply(note("No text: showing the clean image."), list(clean))
         results = []
         info = {}
         for image in clean:
             lettered, info = run_letter(image, text, caption, numbers, s, sfx)
             results.append(lettered)
-        self.store()["results"] = None if numbers else results
-        message = "Bubbles found: %d, filled: %d%s%s." % (
-            info.get("bubbles_found", 0), info.get("bubbles_filled", 0),
-            ", plus a caption" if info.get("free_text") else "",
-            ", SFX: %d" % info["sfx"] if info.get("sfx") else "")
-        return self.reply(note(message), results)
+        return self.reply(note(describe(info)), results)
+
+    def show_clean(self):
+        """Take the lettering off: show the images as they were generated."""
+        clean = self.store().get("clean") or []
+        if not clean:
+            return self.reply(note("Nothing to restore: generate an image first."))
+        return self.reply(note("Text removed: showing the clean image."), list(clean))
+
+    def reset_options(self):
+        """Put every remembered option back to its default."""
+        values = clean_values(dict(DEFAULTS))
+        save_settings(values)
+        return [values[key] for key in ORDER]
+
+    def generation_status(self):
+        return self.store().get("message", "")
 
     def apply_quiet(self, *args):
         return self.apply_now(*args, quiet=True)
@@ -369,29 +438,8 @@ class ComicLetteringScript(scripts.Script):
             values[position] = moved
         return self.apply_now(text, caption, numbers, sfx, *values) + [moved]
 
-    def save_now(self):
-        store = self.store()
-        results = store.get("results")
-        if not results:
-            return note("Nothing to save: press Apply first.")
-        try:
-            from modules import images, shared
-            paths = []
-            for index, image in enumerate(results):
-                def pick(name):
-                    values = store.get(name) or []
-                    return values[index] if index < len(values) else None
-                path, _ = images.save_image(image, store.get("outpath"), "", seed=pick("seeds"),
-                                            prompt=pick("prompts"), info=pick("infotexts"),
-                                            extension=shared.opts.samples_format, suffix="-lettered")
-                paths.append(path)
-            return note("Saved %d file(s): %s" % (len(paths), os.path.dirname(paths[0])))
-        except Exception as error:  # show the reason in the panel instead of a silent failure
-            return note("Save failed: %s" % error)
-
     def process(self, p, *args):
-        STORE[self.tab or ("img2img" if self.is_img2img else "txt2img")] = {
-            "clean": [], "results": None, "outpath": getattr(p, "outpath_samples", None)}
+        STORE[self.tab or ("img2img" if self.is_img2img else "txt2img")] = {"clean": [], "message": ""}
 
     def postprocess_image(self, p, pp, enabled=False, text="", caption="", numbers=False, sfx="",
                           *values):
@@ -402,11 +450,5 @@ class ComicLetteringScript(scripts.Script):
             return
         s = read_values(values)
         save_settings(s)
-        pp.image, _ = run_letter(pp.image, text, caption, False, s, sfx)
-
-    def postprocess(self, p, processed, *args):
-        store = self.store()
-        first = getattr(processed, "index_of_first_image", 0)
-        store["infotexts"] = list(getattr(processed, "infotexts", []) or [])[first:]
-        store["seeds"] = list(getattr(processed, "all_seeds", []) or [])
-        store["prompts"] = list(getattr(processed, "all_prompts", []) or [])
+        pp.image, info = run_letter(pp.image, text, caption, False, s, sfx)
+        store["message"] = note("Applied during generation. " + describe(info))
