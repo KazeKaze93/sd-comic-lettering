@@ -3,7 +3,6 @@
 The panel sits under the result gallery. Text can be applied to the images of the last
 generation without generating again, or automatically to every new image.
 """
-import base64
 import io
 import json
 import os
@@ -17,7 +16,7 @@ _BASE = scripts.basedir()
 if _BASE not in sys.path:
     sys.path.append(_BASE)
 
-from comic_lettering import PLACEMENTS, Style, font_names, font_sample, letter, list_fonts  # noqa: E402
+from comic_lettering import PLACEMENTS, Style, font_names, letter, list_fonts  # noqa: E402
 
 SETTINGS_FILE = os.path.join(_BASE, "user_settings.json")
 
@@ -98,15 +97,6 @@ def run_letter(image, text, caption, numbers, s):
                   numbers=numbers)
 
 
-def sample_html(s, text=""):
-    """The font sample as a small inline image: fixed height, never stretched."""
-    buffer = io.BytesIO()
-    font_sample(make_style(s), text, size=(420, 56)).save(buffer, format="PNG")
-    data = base64.b64encode(buffer.getvalue()).decode("ascii")
-    return ("<img src='data:image/png;base64,%s' alt='font sample' "
-            "style='height:56px;width:auto;max-width:100%%;border-radius:6px;margin-top:1.4em'>" % data)
-
-
 def fonts_css():
     """CSS that draws every entry of the font list in its own font.
 
@@ -178,8 +168,6 @@ class ComicLetteringScript(scripts.Script):
                 font = gr.Dropdown(label="Font", choices=fonts, value=s["font"], scale=2, min_width=160)
                 placement = gr.Dropdown(label="Caption placement", choices=PLACEMENTS,
                                         value=s["placement"], scale=1, min_width=110)
-                sample = gr.HTML(value=sample_html(s), elem_id="comic_lettering_sample_" + self.tab,
-                                 scale=3, min_width=200)
             status = gr.HTML(value="")
             gr.HTML(value=fonts_css(), visible=True, elem_id="comic_lettering_fonts_css_" + self.tab)
             with gr.Accordion("Style", open=False):
@@ -218,12 +206,12 @@ class ComicLetteringScript(scripts.Script):
         remembered = [by_name[key] for key in ORDER]
         controls = [enabled, text, caption, numbers] + remembered
         # The values live in user_settings.json; keep the host's ui-config.json out of it.
-        for component in controls + [sample, status]:
+        for component in controls + [status]:
             component.do_not_save_to_config = True
         self.panel = panel
         self.rendered = not deferred
         self.parts = {"apply": apply_button, "save": save_button, "status": status,
-                      "sample": sample, "font": font, "text": text, "caption": caption,
+                      "font": font, "text": text, "caption": caption,
                       "numbers": numbers, "remembered": remembered}
         if not deferred:
             self.wire()
@@ -243,7 +231,7 @@ class ComicLetteringScript(scripts.Script):
     def wire(self):
         parts = self.parts
         inputs = [parts["text"], parts["caption"], parts["numbers"]] + parts["remembered"]
-        outputs = [parts["status"], parts["sample"]]
+        outputs = [parts["status"]]
         if self.gallery is not None:
             outputs = outputs + [self.gallery]
         parts["apply"].click(fn=self.apply_now, inputs=inputs, outputs=outputs)
@@ -263,7 +251,7 @@ class ComicLetteringScript(scripts.Script):
         return STORE.setdefault(self.tab or ("img2img" if self.is_img2img else "txt2img"), {})
 
     def reply(self, message, s, text, caption, images=None):
-        result = [message, sample_html(s, text or caption)]
+        result = [message]
         if self.gallery is not None:
             result.append(images if images is not None else gr.update())
         return result
