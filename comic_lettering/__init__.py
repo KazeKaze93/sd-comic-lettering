@@ -1,5 +1,5 @@
-from .core import MODES, PLACEMENTS, letter
+from .core import PLACEMENTS, font_sample, letter
 from .fonts import font_names, list_fonts
 from .render import Style
 
-__all__ = ["MODES", "PLACEMENTS", "Style", "font_names", "letter", "list_fonts"]
+__all__ = ["PLACEMENTS", "Style", "font_names", "font_sample", "letter", "list_fonts"]

@@ -4,118 +4,121 @@ import re
 from typing import Dict, Tuple
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from scipy import ndimage as ndi
 
 from .detect import detect_bubbles, edge_energy, erase_letters
 from .render import (Style, block_size, get_fonts, layout, line_heights, parse_color,
                      parse_text, paste_centered, render_block)
 
-MODES = ["auto", "bubble", "free"]
 PLACEMENTS = ["auto", "top", "bottom", "center"]
+SAMPLE_TEXT = u"Hello! \u041f\u0440\u0438\u0432\u0435\u0442! 123"
 
 
-SKIP = "-"       # a block that is just "-" leaves its bubble untouched
-NUMBERS = "#"    # the whole text "#" draws each bubble's number instead of lettering
-
-
-def letter(image, text, mode="auto", placement="auto", style=None, erase=True,
-           white_threshold=120, rtl=False):
-    # type: (Image.Image, str, str, str, Style, bool, int, bool) -> Tuple[Image.Image, Dict]
+def letter(image, text="", caption="", spill=True, placement="auto", style=None, erase=True,
+           white_threshold=120, rtl=False, numbers=False):
+    # type: (Image.Image, str, str, bool, str, Style, bool, int, bool, bool) -> Tuple[Image.Image, Dict]
     """Letter an image.
 
-    Text blocks are separated by a blank line. Each block goes into one bubble in
-    reading order. A block that is just "-" skips its bubble. A block starting with
-    "N:" goes into bubble number N. The text "#" alone draws the bubble numbers.
-
-    Mode "auto": a block goes into a bubble only if it fits at a readable size
-    (style.bubble_min_size); a bubble too small for it is passed over, and blocks left
-    without a bubble become free text. Mode "bubble": always write into the bubbles,
-    however small, and drop the rest. Mode "free" skips detection.
+    text: one line per bubble, in reading order (top to bottom, left to right). An
+    empty line leaves its bubble alone.
+    caption: free text drawn straight onto the art, outside the bubbles.
+    spill: a line goes into a bubble only if it fits at a readable size
+    (style.bubble_min_size); a bubble too small for it is passed over, and lines left
+    without a bubble are added to the caption. Off: always write into the bubbles,
+    however small, and drop the lines left over.
+    numbers: draw each bubble's number instead of any text, to see the order.
     """
     style = style or Style()
     info = {"bubbles_found": 0, "bubbles_filled": 0, "free_text": False, "font_sizes": []}
-    blocks = [b.strip() for b in re.split(r"\n[ \t]*\n", (text or "").replace("\r", "")) if b.strip()]
-    if not blocks:
+    lines = [line.strip() for line in (text or "").replace("\r", "").split("\n")]
+    while lines and not lines[-1]:
+        lines.pop()
+    caption = (caption or "").replace("\r", "").strip()
+    if not lines and not caption and not numbers:
         return image, info
     rgb = np.array(image.convert("RGB"))
     height = rgb.shape[0]
-    bubbles = [] if mode == "free" else detect_bubbles(rgb, white_threshold, rtl=rtl)
+    bubbles = detect_bubbles(rgb, white_threshold, rtl=rtl) if (lines or numbers) else []
     info["bubbles_found"] = len(bubbles)
-    strict = mode == "auto"
-    if blocks == [NUMBERS]:
-        if not bubbles:
-            return image, info
-        blocks = ["%d: %d" % (i + 1, i + 1) for i in range(len(bubbles))]
+    strict = bool(spill)
+    if numbers:
+        lines = [str(i + 1) for i in range(len(bubbles))]
+        caption = ""
         erase = False
         strict = False
 
-    def fit(index, block):
-        return _fit_bubble(height, bubbles[index], block, style, strict)
+    def fit(index, line):
+        return _fit_bubble(height, bubbles[index], line, style, strict)
 
-    plans, rest = _assign(blocks, len(bubbles), fit)
+    plans, rest = _assign(lines, len(bubbles), fit)
     if erase:
         for index, _ in plans:
             erase_letters(rgb, bubbles[index])
     out = Image.fromarray(rgb)
-    for index, (lines, size, cx, cy) in plans:
+    for index, (laid_out, size, cx, cy) in plans:
         bubble = bubbles[index]
         light = (bubble.color[0] * 0.299 + bubble.color[1] * 0.587 + bubble.color[2] * 0.114) > 128
         fill = parse_color(style.text_color, (0, 0, 0) if light else (255, 255, 255))
-        out = paste_centered(out, render_block(lines, size, style, fill), cx, cy)
+        out = paste_centered(out, render_block(laid_out, size, style, fill), cx, cy)
         info["font_sizes"].append(size)
         info["bubbles_filled"] += 1
-    if rest and mode != "bubble":
-        out, size = _letter_free(out, rgb, "\n".join(rest), placement, style)
+    free = (rest if spill and not numbers else []) + ([caption] if caption else [])
+    if free:
+        out, size = _letter_free(out, rgb, "\n".join(free), placement, style)
         info["free_text"] = True
         info["font_sizes"].append(size)
     return out.convert("RGB"), info
 
 
-def _assign(blocks, count, fit):
-    """Map text blocks to bubbles.
+def _assign(lines, count, fit):
+    """Map text lines to bubbles, in order.
 
-    fit(index, text) returns a layout, or None if the text does not fit that bubble.
-    Returns ([(bubble index, layout)], leftover blocks).
+    fit(index, text) returns a layout, or None if the text does not fit that bubble;
+    the line then tries the next bubble. An empty line uses up one bubble.
+    Returns ([(bubble index, layout)], leftover lines).
     """
     taken = [False] * count
     plans = []
     rest = []
-    queue = []
-    for block in blocks:
-        match = re.match(r"^(\d+)[ \t]*:[ \t]*(.+)$", block, re.S)
-        if not match:
-            queue.append(block)
-            continue
-        index = int(match.group(1)) - 1
-        body = match.group(2).strip()
-        usable = 0 <= index < count and not taken[index]
-        if usable:
-            taken[index] = True
-        if body == SKIP:
-            continue
-        result = fit(index, body) if usable else None
-        if result is None:
-            rest.append(body)
-        else:
-            plans.append((index, result))
-    for block in queue:
+    for line in lines:
         placed = False
         for index in range(count):
             if taken[index]:
                 continue
             taken[index] = True
-            if block == SKIP:
+            if not line:
                 placed = True
                 break
-            result = fit(index, block)
+            result = fit(index, line)
             if result is not None:
                 plans.append((index, result))
                 placed = True
                 break
-        if not placed and block != SKIP:
-            rest.append(block)
+        if not placed and line:
+            rest.append(line)
     return plans, rest
+
+
+def font_sample(style, text="", size=(640, 110)):
+    """A strip showing the font both ways: in a bubble and as a caption."""
+    first = [line.strip() for line in (text or "").split("\n") if line.strip()]
+    paragraphs = parse_text(first[0] if first else SAMPLE_TEXT, style.uppercase)
+    width, height = size
+    image = Image.new("RGB", size, (112, 118, 126))
+    ImageDraw.Draw(image).rounded_rectangle([8, 8, width // 2 - 8, height - 8], radius=28,
+                                            fill=(250, 250, 250), outline=(15, 15, 15), width=4)
+    font_size = int(height * 0.36)
+    while True:
+        lines = layout(paragraphs, get_fonts(style, font_size), 10 ** 6)
+        if block_size(lines, font_size, style)[0] <= width / 2.0 - 48 or font_size <= 10:
+            break
+        font_size -= 2
+    bubble = render_block(lines, font_size, style, (0, 0, 0))
+    image = paste_centered(image, bubble, width * 0.25, height / 2.0)
+    stroke = int(round(font_size * max(0.0, style.stroke_width)))
+    free = render_block(lines, font_size, style, (255, 255, 255), (0, 0, 0), stroke, style.shadow)
+    return paste_centered(image, free, width * 0.75, height / 2.0).convert("RGB")
 
 
 def _fits(lines, size, style, inner, cy, cx):

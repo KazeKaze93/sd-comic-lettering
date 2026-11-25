@@ -3,15 +3,18 @@ import argparse
 
 from PIL import Image
 
-from . import MODES, PLACEMENTS, Style, font_names, letter
+from . import PLACEMENTS, Style, font_names, letter
 
 
 def main():
     parser = argparse.ArgumentParser(prog="comic_lettering")
     parser.add_argument("src")
     parser.add_argument("dst")
-    parser.add_argument("--text", required=True, help=r"use \n for a line break, \n\n between bubbles")
-    parser.add_argument("--mode", choices=MODES, default="auto")
+    parser.add_argument("--text", default="", help=r"bubble lines, \n between bubbles")
+    parser.add_argument("--caption", default="", help=r"text on the art, \n for a line break")
+    parser.add_argument("--numbers", action="store_true", help="draw bubble numbers instead of text")
+    parser.add_argument("--no-spill", action="store_true",
+                        help="always write into the bubbles, drop lines left over")
     parser.add_argument("--placement", choices=PLACEMENTS, default="auto")
     parser.add_argument("--font", default=font_names()[0])
     parser.add_argument("--no-uppercase", action="store_true")
@@ -20,8 +23,7 @@ def main():
     for name, default in (("stroke-width", 0.12), ("shadow", 0.5), ("rotation", 0.0),
                           ("jitter", 0.3), ("arc", 0.0), ("soften", 0.4), ("grain", 0.0),
                           ("opacity", 1.0), ("free-size", 5.5), ("bubble-size", 9.0),
-                          ("bubble-min-size", 1.5),
-                          ("margin", 0.08)):
+                          ("bubble-min-size", 1.5), ("margin", 0.08)):
         parser.add_argument("--" + name, type=float, default=default)
     parser.add_argument("--text-color", default="auto")
     parser.add_argument("--stroke-color", default="auto")
@@ -32,11 +34,11 @@ def main():
                   shadow=args.shadow, rotation=args.rotation, jitter=args.jitter, arc=args.arc,
                   soften=args.soften, grain=args.grain, opacity=args.opacity,
                   free_size=args.free_size, bubble_size=args.bubble_size,
-                  bubble_min_size=args.bubble_min_size, margin=args.margin,
-                  seed=args.seed)
-    image, info = letter(Image.open(args.src), args.text.replace("\\n", "\n"), mode=args.mode,
+                  bubble_min_size=args.bubble_min_size, margin=args.margin, seed=args.seed)
+    image, info = letter(Image.open(args.src), args.text.replace("\\n", "\n"),
+                         caption=args.caption.replace("\\n", "\n"), spill=not args.no_spill,
                          placement=args.placement, style=style, erase=not args.no_erase,
-                         white_threshold=args.white_threshold)
+                         white_threshold=args.white_threshold, numbers=args.numbers)
     image.save(args.dst)
     print(info)
 

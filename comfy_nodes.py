@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from .comic_lettering import MODES, PLACEMENTS, Style, font_names, letter
+from .comic_lettering import PLACEMENTS, Style, font_names, letter
 
 
 class ComicLettering(object):
@@ -14,8 +14,10 @@ class ComicLettering(object):
 
         return {"required": {
             "image": ("IMAGE",),
-            "text": ("STRING", {"multiline": True, "default": ""}),
-            "mode": (MODES,),
+            "bubbles": ("STRING", {"multiline": True, "default": ""}),
+            "caption": ("STRING", {"multiline": True, "default": ""}),
+            "show_numbers": ("BOOLEAN", {"default": False}),
+            "spill_to_caption": ("BOOLEAN", {"default": True}),
             "placement": (PLACEMENTS,),
             "font": (font_names(),),
             "uppercase": ("BOOLEAN", {"default": True}),
@@ -42,11 +44,11 @@ class ComicLettering(object):
     FUNCTION = "run"
     CATEGORY = "image/postprocessing"
 
-    def run(self, image, text, mode, placement, font, uppercase, bubble_size,
-            bubble_min_size, free_size,
-            text_color, stroke_color, stroke_width, shadow, jitter, arc, rotation, soften,
-            grain, opacity, margin, erase_ai_text, white_threshold, seed):
-        if not text.strip():
+    def run(self, image, bubbles, caption, show_numbers, spill_to_caption, placement, font,
+            uppercase, bubble_size, bubble_min_size, free_size, text_color, stroke_color,
+            stroke_width, shadow, jitter, arc, rotation, soften, grain, opacity, margin,
+            erase_ai_text, white_threshold, seed):
+        if not bubbles.strip() and not caption.strip() and not show_numbers:
             return (image,)
         style = Style(font=font, uppercase=uppercase, text_color=text_color,
                       stroke_color=stroke_color, stroke_width=stroke_width, shadow=shadow,
@@ -56,8 +58,10 @@ class ComicLettering(object):
         frames = []
         for frame in image:
             array = (frame[..., :3].cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-            result, _ = letter(Image.fromarray(array), text, mode=mode, placement=placement,
-                               style=style, erase=erase_ai_text, white_threshold=white_threshold)
+            result, _ = letter(Image.fromarray(array), bubbles, caption=caption,
+                               spill=spill_to_caption, placement=placement, style=style,
+                               erase=erase_ai_text, white_threshold=white_threshold,
+                               numbers=show_numbers)
             frames.append(torch.from_numpy(np.asarray(result).astype(np.float32) / 255.0))
         return (torch.stack(frames),)
 
