@@ -118,6 +118,79 @@ def layout(paragraphs, fonts, max_width):
     return lines
 
 
+def diamond_profile(count):
+    """Relative line widths of a text block that follows an oval: short, long, short."""
+    return [math.sqrt(max(0.0, 1.0 - ((2 * i + 1 - count) / float(count)) ** 2))
+            for i in range(count)]
+
+
+def layout_shaped(paragraphs, fonts, count):
+    """Break a single paragraph into `count` lines whose widths follow an oval.
+
+    Greedy wrapping fills the first lines and leaves a short last one. This picks the
+    breaks that bring the line widths closest to the diamond profile instead. Returns
+    lines in the same form as layout(), or None when it does not apply.
+    """
+    if len(paragraphs) != 1:
+        return None
+    base, big = fonts
+    space = base.getlength(" ")
+    tokens = [(word, emph, (big if emph else base).getlength(word), glue)
+              for word, emph, glue in paragraphs[0]]
+    total_tokens = len(tokens)
+    if count < 2 or count > total_tokens:
+        return None
+    gaps = [0.0 if glue else space for _, _, _, glue in tokens]
+    reach = [0.0]
+    for index, token in enumerate(tokens):
+        reach.append(reach[-1] + token[2] + (gaps[index] if index else 0.0))
+
+    def width(start, stop):
+        return reach[stop] - reach[start] - (gaps[start] if start else 0.0)
+
+    profile = diamond_profile(count)
+    targets = [width(0, total_tokens) * p / sum(profile) for p in profile]
+    infinity = float("inf")
+    # best[line][stop]: least squared error with tokens[:stop] on the first `line` lines.
+    best = [[infinity] * (total_tokens + 1) for _ in range(count + 1)]
+    cut = [[0] * (total_tokens + 1) for _ in range(count + 1)]
+    best[0][0] = 0.0
+    for line in range(1, count + 1):
+        for stop in range(line, total_tokens - (count - line) + 1):
+            for start in range(line - 1, stop):
+                if best[line - 1][start] == infinity:
+                    continue
+                cost = best[line - 1][start] + (width(start, stop) - targets[line - 1]) ** 2
+                if cost < best[line][stop]:
+                    best[line][stop] = cost
+                    cut[line][stop] = start
+    lines = []
+    stop = total_tokens
+    for line in range(count, 0, -1):
+        start = cut[line][stop]
+        lines.append((tokens[start:stop], width(start, stop)))
+        stop = start
+    lines.reverse()
+    return lines
+
+
+def shape_score(lines):
+    """How far a layout is from the diamond shape; lower is better. One line scores 0."""
+    widths = [w for _, w in lines]
+    count = len(widths)
+    if count <= 1:
+        return 0.0
+    widest = max(widths) or 1.0
+    profile = diamond_profile(count)
+    top = max(profile)
+    score = sum((w / widest - p / top) ** 2 for w, p in zip(widths, profile)) / count
+    if widths[-1] < 0.4 * widest:
+        score += 0.5  # a lone short word on the last line
+    if widths[0] < 0.3 * widest:
+        score += 0.2
+    return score + 0.02 * count
+
+
 def line_heights(lines, size, style):
     """Height of every line; a line with an emphasized word is taller."""
     heights = []

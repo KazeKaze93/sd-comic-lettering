@@ -10,10 +10,12 @@ from PIL import Image, ImageDraw
 from scipy import ndimage as ndi
 
 from .detect import detect_bubbles, edge_energy, erase_letters, luminance
-from .render import (Style, block_size, get_fonts, layout, line_heights, parse_color,
-                     parse_text, paste_centered, render_block)
+from .render import (Style, block_size, get_fonts, layout, layout_shaped, line_heights,
+                     parse_color, parse_text, paste_centered, render_block, shape_score)
 
 PLACEMENTS = ["auto", "top", "bottom", "center"]
+SHAPE_WEIGHT = 0.6   # how much font size a better line shape is worth
+SHAPE_REACH = 0.8    # look for a better shape down to this share of the largest size
 SAMPLE_TEXT = u"Hello! \u041f\u0440\u0438\u0432\u0435\u0442! 123"
 
 
@@ -162,6 +164,11 @@ def _fits(lines, size, style, inner, cy, cx):
 def _fit_bubble(image_height, bubble, text, style, strict):
     """Largest layout of text that fits the bubble: (lines, size, cx, cy).
 
+    Several ways to break the lines are tried, at the largest size that fits and a
+    little below it. The winner balances size against shape: a layout close to a
+    diamond (short lines at the top and bottom, long in the middle) may win over a
+    slightly bigger one that stacks single words or leaves a lone last word.
+
     strict: return None when it only fits below the readable minimum. Otherwise fall
     back to the smallest size even if it overflows.
     """
@@ -179,12 +186,24 @@ def _fit_bubble(image_height, bubble, text, style, strict):
     if strict:
         smallest = max(smallest, int(round(style.bubble_min_size / 100.0 * image_height)))
     size = max(smallest, int(style.bubble_size / 100.0 * image_height))
+    largest = None   # the largest size at which anything fits
+    best = None      # (quality, lines, size)
     while True:
         fonts = get_fonts(style, size)
-        for fraction in (0.95, 0.82, 0.7, 0.58, 0.46):
-            lines = layout(paragraphs, fonts, body_w * fraction)
-            if _fits(lines, size, style, inner, cy, cx):
-                return lines, size, bubble.x0 + cx, bubble.y0 + cy
+        candidates = [layout(paragraphs, fonts, body_w * fraction)
+                      for fraction in (0.95, 0.82, 0.7, 0.58, 0.46)]
+        candidates += [layout_shaped(paragraphs, fonts, count) for count in range(2, 7)]
+        for lines in candidates:
+            if lines is None or not _fits(lines, size, style, inner, cy, cx):
+                continue
+            if largest is None:
+                largest = size
+            quality = size / float(largest) - SHAPE_WEIGHT * shape_score(lines)
+            if best is None or quality > best[0]:
+                best = (quality, lines, size)
+        # Keep looking a little below the largest fit: a better shape may be worth it.
+        if largest is not None and (size <= smallest or size * 0.93 < largest * SHAPE_REACH):
+            return best[1], best[2], bubble.x0 + cx, bubble.y0 + cy
         if size <= smallest:
             if strict:
                 return None

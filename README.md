@@ -49,7 +49,7 @@ Add the `Comic Lettering` node (category `image/postprocessing`) between `VAE De
 
 Three fields:
 
-- **Bubbles**: one line per bubble, in reading order (top to bottom, left to right). An empty line skips a bubble. Line breaks inside a bubble are placed automatically.
+- **Bubbles**: one line per bubble, in reading order (top to bottom, left to right). An empty line skips a bubble. Line breaks inside a bubble are placed automatically, at the largest font size that fits, and so that the lines form a diamond: short at the top and bottom, long in the middle.
 - **Caption**: text drawn straight onto the art, outside the bubbles. With `auto` placement it takes the calmer of top and bottom and keeps off the bubbles.
 - **SFX**: sound effects, one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the caption and the other effects. **Move SFX** puts them somewhere else; press it until they sit well.
 
