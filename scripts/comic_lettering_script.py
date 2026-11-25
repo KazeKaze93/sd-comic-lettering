@@ -17,8 +17,12 @@ if _BASE not in sys.path:
     sys.path.append(_BASE)
 
 from comic_lettering import PLACEMENTS, Style, font_names, letter, list_fonts  # noqa: E402
+from comic_lettering.render import (BUBBLE_SHAPES, BUBBLE_THEMES, EXTRAS, MOODS,  # noqa: E402
+                                    PALETTES, TAILS)
 
 SETTINGS_FILE = os.path.join(_BASE, "user_settings.json")
+SAME_FONT = "same as bubbles"
+SFX_FONT = "Bangers"
 
 # Everything except the texts and the two action checkboxes is remembered between sessions.
 DEFAULTS = {
@@ -29,18 +33,51 @@ DEFAULTS = {
     "white_threshold": 120, "seed": 0,
     "sfx_font": "", "sfx_size": 7.0, "sfx_color": "auto", "sfx_tilt": 15.0, "sfx_opacity": 0.95,
     "sfx_seed": 0,
+    "caption_font": SAME_FONT, "bubble_colors": "auto", "caption_colors": "auto",
+    "sfx_colors": "auto", "bubble_mood": "calm", "caption_mood": "calm", "sfx_mood": "shout",
+    "caption_extras": "none", "sfx_extras": "none", "caption_bubble": "none",
+    "caption_bubble_theme": "light", "caption_tail": "none", "size_jitter": 0.0,
+    "line_tilt": 0.0, "line_shift": 0.0, "rough": 0.0, "line_spacing": 1.08,
 }
-# Order of the remembered values in the argument list, after enabled, text, caption, numbers.
-# The SFX text comes last, after all of these.
+# Order of the remembered values in the argument list, after enabled, text, caption,
+# numbers and the SFX text.
 ORDER = ["placement", "font", "spill", "uppercase", "erase", "bubble_size", "bubble_min_size",
          "free_size", "text_color", "stroke_color", "stroke_width", "shadow", "jitter", "arc",
          "rotation", "soften", "grain", "opacity", "margin", "white_threshold", "seed",
-         "sfx_font", "sfx_size", "sfx_color", "sfx_tilt", "sfx_opacity", "sfx_seed"]
-SFX_FONT = "Bangers"
+         "sfx_font", "sfx_size", "sfx_color", "sfx_tilt", "sfx_opacity", "sfx_seed",
+         "caption_font", "bubble_colors", "caption_colors", "sfx_colors", "bubble_mood",
+         "caption_mood", "sfx_mood", "caption_extras", "sfx_extras", "caption_bubble",
+         "caption_bubble_theme", "caption_tail", "size_jitter", "line_tilt", "line_shift",
+         "rough", "line_spacing"]
+# Lists a saved value must belong to; anything else falls back to the default.
+CHOICES = {
+    "placement": PLACEMENTS, "bubble_colors": list(PALETTES), "caption_colors": list(PALETTES),
+    "sfx_colors": list(PALETTES), "bubble_mood": list(MOODS), "caption_mood": list(MOODS),
+    "sfx_mood": list(MOODS), "caption_extras": list(EXTRAS), "sfx_extras": list(EXTRAS),
+    "caption_bubble": BUBBLE_SHAPES, "caption_bubble_theme": BUBBLE_THEMES,
+    "caption_tail": list(TAILS),
+}
 
 # Per tab: the images of the last generation before any lettering, and what is needed to save.
 STORE = {}
 _last_saved = {}
+
+
+def clean_values(values):
+    """Make every value usable: known fonts, known list entries, the right number types."""
+    fonts = font_names()
+    if values.get("font") not in fonts:
+        values["font"] = fonts[0]
+    if values.get("sfx_font") not in fonts:
+        values["sfx_font"] = SFX_FONT if SFX_FONT in fonts else fonts[0]
+    if values.get("caption_font") not in fonts:
+        values["caption_font"] = SAME_FONT
+    for key, allowed in CHOICES.items():
+        if values.get(key) not in allowed:
+            values[key] = DEFAULTS[key]
+    for key in ("seed", "sfx_seed", "white_threshold"):
+        values[key] = int(values.get(key) or 0)
+    return values
 
 
 def load_settings():
@@ -57,14 +94,7 @@ def load_settings():
                 values[key] = float(saved[key])
     except (IOError, OSError, ValueError):
         pass
-    fonts = font_names()
-    if values["font"] not in fonts:
-        values["font"] = fonts[0]
-    if values["sfx_font"] not in fonts:
-        values["sfx_font"] = SFX_FONT if SFX_FONT in fonts else fonts[0]
-    if values["placement"] not in PLACEMENTS:
-        values["placement"] = DEFAULTS["placement"]
-    return values
+    return clean_values(values)
 
 
 def save_settings(values):
@@ -80,30 +110,22 @@ def save_settings(values):
 
 
 def read_values(values):
-    """Split the trailing script arguments into the settings and the SFX text."""
     s = dict(DEFAULTS)
     s.update(dict(zip(ORDER, values)))
-    s["seed"] = int(s["seed"] or 0)
-    s["sfx_seed"] = int(s["sfx_seed"] or 0)
-    s["white_threshold"] = int(s["white_threshold"])
-    fonts = font_names()
-    if not s["font"]:
-        s["font"] = fonts[0]
-    if not s["sfx_font"]:
-        s["sfx_font"] = SFX_FONT if SFX_FONT in fonts else fonts[0]
-    sfx = values[len(ORDER)] if len(values) > len(ORDER) else ""
-    return s, (sfx or "")
+    return clean_values(s)
 
 
 def make_style(s):
-    return Style(font=s["font"], uppercase=s["uppercase"], text_color=s["text_color"],
-                 stroke_color=s["stroke_color"], stroke_width=s["stroke_width"],
-                 shadow=s["shadow"], rotation=s["rotation"], jitter=s["jitter"], arc=s["arc"],
-                 soften=s["soften"], grain=s["grain"], opacity=s["opacity"],
-                 free_size=s["free_size"], bubble_size=s["bubble_size"],
-                 bubble_min_size=s["bubble_min_size"], margin=s["margin"], seed=s["seed"],
-                 sfx_font=s["sfx_font"], sfx_size=s["sfx_size"], sfx_color=s["sfx_color"],
-                 sfx_tilt=s["sfx_tilt"], sfx_opacity=s["sfx_opacity"], sfx_seed=s["sfx_seed"])
+    style = Style()
+    for key, value in s.items():
+        if key in ("placement", "spill", "erase", "white_threshold"):
+            continue  # arguments of letter(), not style options
+        if not hasattr(style, key):
+            continue
+        setattr(style, key, value)
+    if s["caption_font"] == SAME_FONT:
+        style.caption_font = ""
+    return style
 
 
 def run_letter(image, text, caption, numbers, s, sfx=""):
@@ -113,7 +135,7 @@ def run_letter(image, text, caption, numbers, s, sfx=""):
 
 
 def fonts_css():
-    """CSS that draws every entry of the font list in its own font.
+    """CSS that draws every entry of the font lists in its own font.
 
     Fonts inside the web UI folder are fetched through the host's file route; system
     fonts are picked up by name from the browser's machine.
@@ -160,13 +182,21 @@ class ComicLetteringScript(scripts.Script):
         fonts = font_names()
         s = load_settings()
         try:
-            panel = gr.Accordion("Comic Lettering", open=True, render=False,
+            panel = gr.Accordion("Comic Lettering", open=False, render=False,
                                  elem_id="comic_lettering_" + self.tab)
             deferred = True
         except TypeError:  # host without deferred rendering: stay in the script list
             panel = gr.Accordion("Comic Lettering", open=False,
                                  elem_id="comic_lettering_" + self.tab)
             deferred = False
+        c = {}  # name -> component, for the remembered settings
+
+        def pick(key, label, choices, **kwargs):
+            c[key] = gr.Dropdown(label=label, choices=list(choices), value=s[key], min_width=120, **kwargs)
+
+        def slide(key, label, low, high, step):
+            c[key] = gr.Slider(label=label, minimum=low, maximum=high, step=step, value=s[key])
+
         with panel:
             with gr.Row():
                 text = gr.Textbox(label="Bubbles", lines=2, max_lines=6,
@@ -175,74 +205,89 @@ class ComicLetteringScript(scripts.Script):
                 caption = gr.Textbox(label="Caption", lines=2, max_lines=6,
                                      placeholder="Text on the art, outside the bubbles.")
                 sfx = gr.Textbox(label="SFX", lines=2, max_lines=6,
-                                 placeholder="Sound effects, one per line: SLAP, THUD. Each is drawn "
-                                             "big and tilted in an empty spot of the art.")
+                                 placeholder="Sound effects, one per line: SLAP, THUD, FAP x5. "
+                                             "Drawn big and tilted in an empty spot. "
+                                             u"♥ ★ ♪ work as symbols.")
             with gr.Row():
                 apply_button = gr.Button("Apply", variant="primary", size="sm", scale=1, min_width=80)
                 save_button = gr.Button("Save", size="sm", scale=1, min_width=80)
                 shuffle_button = gr.Button("Move SFX", size="sm", scale=1, min_width=90)
                 enabled = gr.Checkbox(label="Every new image", value=False, scale=2, min_width=140)
                 numbers = gr.Checkbox(label="Bubble numbers", value=False, scale=2, min_width=140)
-            with gr.Row():
-                font = gr.Dropdown(label="Font", choices=fonts, value=s["font"], scale=2, min_width=160)
-                placement = gr.Dropdown(label="Caption placement", choices=PLACEMENTS,
-                                        value=s["placement"], scale=1, min_width=110)
             status = gr.HTML(value="")
+            with gr.Row():
+                pick("font", "Bubbles: font", fonts)
+                pick("bubble_colors", "Bubbles: colors", PALETTES)
+                pick("bubble_mood", "Bubbles: mood", MOODS)
+            with gr.Row():
+                pick("caption_font", "Caption: font", [SAME_FONT] + fonts)
+                pick("caption_colors", "Caption: colors", PALETTES)
+                pick("caption_mood", "Caption: mood", MOODS)
+                pick("caption_extras", "Caption: extras", EXTRAS)
+            with gr.Row():
+                pick("placement", "Caption: placement", PLACEMENTS)
+                pick("caption_bubble", "Caption: bubble", BUBBLE_SHAPES)
+                pick("caption_bubble_theme", "Drawn bubble", BUBBLE_THEMES)
+                pick("caption_tail", "Bubble tail", TAILS)
+            with gr.Row():
+                pick("sfx_font", "SFX: font", fonts)
+                pick("sfx_colors", "SFX: colors", PALETTES)
+                pick("sfx_mood", "SFX: mood", MOODS)
+                pick("sfx_extras", "SFX: extras", EXTRAS)
             gr.HTML(value=fonts_css(), visible=True, elem_id="comic_lettering_fonts_css_" + self.tab)
-            with gr.Accordion("Style", open=False):
+            with gr.Accordion("Fine tuning", open=False):
                 with gr.Row():
-                    uppercase = gr.Checkbox(label="Uppercase", value=s["uppercase"])
-                    erase = gr.Checkbox(label="Erase AI text in bubbles", value=s["erase"])
-                    spill = gr.Checkbox(label="Text that does not fit a bubble goes to the caption", value=s["spill"])
+                    c["uppercase"] = gr.Checkbox(label="Uppercase", value=s["uppercase"])
+                    c["erase"] = gr.Checkbox(label="Erase AI text in bubbles", value=s["erase"])
+                    c["spill"] = gr.Checkbox(label="Text that does not fit a bubble goes to the caption", value=s["spill"])
                 with gr.Row():
-                    bubble_size = gr.Slider(label="Bubble: max font size, % of height", minimum=1, maximum=30, step=0.5, value=s["bubble_size"])
-                    bubble_min_size = gr.Slider(label="Bubble: min readable font size, % of height", minimum=0.5, maximum=10, step=0.1, value=s["bubble_min_size"])
-                    free_size = gr.Slider(label="Caption: font size, % of height", minimum=1, maximum=30, step=0.5, value=s["free_size"])
+                    slide("bubble_size", "Bubble: max font size, % of height", 1, 30, 0.5)
+                    slide("bubble_min_size", "Bubble: min readable font size, % of height", 0.5, 10, 0.1)
+                    slide("margin", "Bubble margin", 0, 0.3, 0.01)
                 with gr.Row():
-                    text_color = gr.Textbox(label="Text color (auto or #RRGGBB)", value=s["text_color"])
-                    stroke_color = gr.Textbox(label="Caption stroke color (auto or #RRGGBB)", value=s["stroke_color"])
+                    slide("free_size", "Caption: font size, % of height", 1, 30, 0.5)
+                    slide("stroke_width", "Caption stroke width", 0, 0.5, 0.01)
+                    slide("shadow", "Caption shadow", 0, 1, 0.05)
                 with gr.Row():
-                    stroke_width = gr.Slider(label="Caption stroke width", minimum=0, maximum=0.5, step=0.01, value=s["stroke_width"])
-                    shadow = gr.Slider(label="Caption shadow", minimum=0, maximum=1, step=0.05, value=s["shadow"])
+                    slide("sfx_size", "SFX: size, % of height", 1, 30, 0.5)
+                    slide("sfx_tilt", "SFX: max tilt, degrees", 0, 45, 1)
+                    slide("sfx_opacity", "SFX opacity", 0.1, 1, 0.05)
+                gr.HTML(note("Colors \"auto\" use the three fields below; \"auto\" in a field means white with a dark outline."))
                 with gr.Row():
-                    jitter = gr.Slider(label="Letter jitter", minimum=0, maximum=1, step=0.05, value=s["jitter"])
-                    arc = gr.Slider(label="Arc", minimum=-1, maximum=1, step=0.05, value=s["arc"])
-                    rotation = gr.Slider(label="Rotation", minimum=-45, maximum=45, step=0.5, value=s["rotation"])
+                    c["text_color"] = gr.Textbox(label="Text color (auto or #RRGGBB)", value=s["text_color"])
+                    c["stroke_color"] = gr.Textbox(label="Caption stroke color (auto or #RRGGBB)", value=s["stroke_color"])
+                    c["sfx_color"] = gr.Textbox(label="SFX color (auto or #RRGGBB)", value=s["sfx_color"])
+                gr.HTML(note("Mood \"custom\" uses the six sliders below."))
                 with gr.Row():
-                    soften = gr.Slider(label="Soften, px", minimum=0, maximum=3, step=0.1, value=s["soften"])
-                    grain = gr.Slider(label="Ink grain", minimum=0, maximum=1, step=0.05, value=s["grain"])
-                    opacity = gr.Slider(label="Opacity", minimum=0.1, maximum=1, step=0.05, value=s["opacity"])
+                    slide("jitter", "Letter jitter", 0, 1, 0.05)
+                    slide("size_jitter", "Letter size variety", 0, 1, 0.05)
+                    slide("rough", "Rough edges", 0, 1, 0.05)
                 with gr.Row():
-                    margin = gr.Slider(label="Bubble margin", minimum=0, maximum=0.3, step=0.01, value=s["margin"])
-                    white_threshold = gr.Slider(label="Bubble min brightness", minimum=40, maximum=255, step=1, value=s["white_threshold"])
-                    seed = gr.Number(label="Jitter seed", value=s["seed"], precision=0)
+                    slide("line_tilt", "Line tilt, degrees", 0, 15, 0.5)
+                    slide("line_shift", "Line shift", 0, 1, 0.05)
+                    slide("line_spacing", "Line spacing", 0.7, 1.6, 0.02)
                 with gr.Row():
-                    sfx_font = gr.Dropdown(label="SFX font", choices=fonts, value=s["sfx_font"])
-                    sfx_size = gr.Slider(label="SFX: size, % of height", minimum=1, maximum=30, step=0.5, value=s["sfx_size"])
-                    sfx_tilt = gr.Slider(label="SFX: max tilt, degrees", minimum=0, maximum=45, step=1, value=s["sfx_tilt"])
+                    slide("arc", "Arc", -1, 1, 0.05)
+                    slide("rotation", "Rotation", -45, 45, 0.5)
+                    slide("opacity", "Opacity", 0.1, 1, 0.05)
                 with gr.Row():
-                    sfx_color = gr.Textbox(label="SFX color (auto or #RRGGBB)", value=s["sfx_color"])
-                    sfx_opacity = gr.Slider(label="SFX opacity", minimum=0.1, maximum=1, step=0.05, value=s["sfx_opacity"])
-                    sfx_seed = gr.Number(label="SFX placement (Move SFX changes it)", value=s["sfx_seed"], precision=0)
-        by_name = {"placement": placement, "font": font, "spill": spill, "uppercase": uppercase,
-                   "erase": erase, "bubble_size": bubble_size, "bubble_min_size": bubble_min_size,
-                   "free_size": free_size, "text_color": text_color, "stroke_color": stroke_color,
-                   "stroke_width": stroke_width, "shadow": shadow, "jitter": jitter, "arc": arc,
-                   "rotation": rotation, "soften": soften, "grain": grain, "opacity": opacity,
-                   "margin": margin, "white_threshold": white_threshold, "seed": seed,
-                   "sfx_font": sfx_font, "sfx_size": sfx_size, "sfx_color": sfx_color,
-                   "sfx_tilt": sfx_tilt, "sfx_opacity": sfx_opacity, "sfx_seed": sfx_seed}
-        remembered = [by_name[key] for key in ORDER]
-        controls = [enabled, text, caption, numbers] + remembered + [sfx]
+                    slide("soften", "Soften, px", 0, 3, 0.1)
+                    slide("grain", "Ink grain", 0, 1, 0.05)
+                    slide("white_threshold", "Bubble min brightness", 40, 255, 1)
+                with gr.Row():
+                    c["seed"] = gr.Number(label="Jitter seed", value=s["seed"], precision=0)
+                    c["sfx_seed"] = gr.Number(label="SFX placement (Move SFX changes it)", value=s["sfx_seed"], precision=0)
+        remembered = [c[key] for key in ORDER]
+        controls = [enabled, text, caption, numbers, sfx] + remembered
         # The values live in user_settings.json; keep the host's ui-config.json out of it.
         for component in controls + [status]:
             component.do_not_save_to_config = True
         self.panel = panel
         self.rendered = not deferred
-        self.parts = {"apply": apply_button, "save": save_button, "status": status,
-                      "font": font, "text": text, "caption": caption, "sfx": sfx,
-                      "shuffle": shuffle_button, "sfx_font": sfx_font, "sfx_seed": sfx_seed,
-                      "numbers": numbers, "remembered": remembered}
+        self.parts = {"apply": apply_button, "save": save_button, "shuffle": shuffle_button,
+                      "status": status, "text": text, "caption": caption, "sfx": sfx,
+                      "numbers": numbers, "remembered": remembered, "sfx_seed": c["sfx_seed"],
+                      "instant": [c[key] for key in ORDER if isinstance(c[key], gr.Dropdown)]}
         if not deferred:
             self.wire()
         return controls
@@ -260,14 +305,13 @@ class ComicLetteringScript(scripts.Script):
 
     def wire(self):
         parts = self.parts
-        inputs = ([parts["text"], parts["caption"], parts["numbers"]] + parts["remembered"]
-                  + [parts["sfx"]])
+        inputs = [parts["text"], parts["caption"], parts["numbers"], parts["sfx"]] + parts["remembered"]
         outputs = [parts["status"]]
         if self.gallery is not None:
             outputs = outputs + [self.gallery]
         parts["apply"].click(fn=self.apply_now, inputs=inputs, outputs=outputs)
-        parts["font"].change(fn=self.apply_quiet, inputs=inputs, outputs=outputs)
-        parts["sfx_font"].change(fn=self.apply_quiet, inputs=inputs, outputs=outputs)
+        for dropdown in parts["instant"]:  # every list re-applies at once
+            dropdown.change(fn=self.apply_quiet, inputs=inputs, outputs=outputs)
         parts["shuffle"].click(fn=self.move_sfx, inputs=inputs, outputs=outputs + [parts["sfx_seed"]])
         parts["save"].click(fn=self.save_now, inputs=[], outputs=[parts["status"]])
         # ui-config and the build-time values are stale after a browser reload: refresh
@@ -283,24 +327,24 @@ class ComicLetteringScript(scripts.Script):
     def store(self):
         return STORE.setdefault(self.tab or ("img2img" if self.is_img2img else "txt2img"), {})
 
-    def reply(self, message, s, text, caption, images=None):
+    def reply(self, message, images=None):
         result = [message]
         if self.gallery is not None:
             result.append(images if images is not None else gr.update())
         return result
 
-    def apply_now(self, text, caption, numbers, *values, **options):
+    def apply_now(self, text, caption, numbers, sfx, *values, **options):
         """Letter the images of the last generation again, from their clean copies."""
-        s, sfx = read_values(values)
+        s = read_values(values)
         save_settings(s)
+        sfx = sfx or ""
         clean = self.store().get("clean") or []
         if not clean:
             quiet = options.get("quiet")
-            return self.reply("" if quiet else note("Generate an image first: there is nothing to letter yet."),
-                              s, text, caption)
+            return self.reply("" if quiet else note("Generate an image first: there is nothing to letter yet."))
         if not (text or "").strip() and not (caption or "").strip() and not sfx.strip() and not numbers:
             self.store()["results"] = None
-            return self.reply(note("No text: showing the clean image."), s, text, caption, list(clean))
+            return self.reply(note("No text: showing the clean image."), list(clean))
         results = []
         info = {}
         for image in clean:
@@ -311,19 +355,19 @@ class ComicLetteringScript(scripts.Script):
             info.get("bubbles_found", 0), info.get("bubbles_filled", 0),
             ", plus a caption" if info.get("free_text") else "",
             ", SFX: %d" % info["sfx"] if info.get("sfx") else "")
-        return self.reply(note(message), s, text, caption, results)
+        return self.reply(note(message), results)
 
     def apply_quiet(self, *args):
         return self.apply_now(*args, quiet=True)
 
-    def move_sfx(self, text, caption, numbers, *values):
+    def move_sfx(self, text, caption, numbers, sfx, *values):
         """Put the sound effects somewhere else: bump the placement number and apply."""
         values = list(values)
         position = ORDER.index("sfx_seed")
         moved = int((values[position] if position < len(values) else 0) or 0) + 1
         if position < len(values):
             values[position] = moved
-        return self.apply_now(text, caption, numbers, *values) + [moved]
+        return self.apply_now(text, caption, numbers, sfx, *values) + [moved]
 
     def save_now(self):
         store = self.store()
@@ -349,12 +393,14 @@ class ComicLetteringScript(scripts.Script):
         STORE[self.tab or ("img2img" if self.is_img2img else "txt2img")] = {
             "clean": [], "results": None, "outpath": getattr(p, "outpath_samples", None)}
 
-    def postprocess_image(self, p, pp, enabled=False, text="", caption="", numbers=False, *values):
+    def postprocess_image(self, p, pp, enabled=False, text="", caption="", numbers=False, sfx="",
+                          *values):
         store = self.store()
         store.setdefault("clean", []).append(pp.image.copy())
-        s, sfx = read_values(values)
+        sfx = sfx or ""
         if not enabled or (not (text or "").strip() and not (caption or "").strip() and not sfx.strip()):
             return
+        s = read_values(values)
         save_settings(s)
         pp.image, _ = run_letter(pp.image, text, caption, False, s, sfx)
 

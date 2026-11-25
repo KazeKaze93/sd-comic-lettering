@@ -21,6 +21,8 @@ class Bubble(object):
         self.filled = comp if filled is None else filled  # comp with holes (letters) filled
         self.body = body        # filled, with the tail removed
         self.color = color      # median bubble color (r, g, b)
+        self.dark = False       # a near-black bubble with a bright outline
+        self.outline_color = None  # dark bubbles: the color of that outline
         ys, xs = np.nonzero(body)
         self.cy = y0 + float(ys.mean())
         self.cx = x0 + float(xs.mean())
@@ -60,6 +62,14 @@ def is_bubble(item, min_outline=0.8):
     Real bubbles there: flatness up to 0.8, outline 0.88 or more, solidity 0.92 or
     more. The nearest look-alikes: flatness 1.5 and up, or outline under 0.8.
     """
+    if item["bubble"].dark:
+        # Near-black bubbles with a bright outline. Glowing letters leave a soft halo
+        # in the fill, so it is less flat; shoes, hair and shadows are also dark and
+        # outlined, so the shape and the outline have to be stricter. Calibrated on a
+        # single real example: expect misses.
+        return (item["flatness"] <= 2.5 and item["solidity"] >= 0.9
+                and 0.45 <= item["extent"] < 0.96 and item["outline"] >= max(min_outline, 0.85)
+                and item["body"] >= 0.55 and item["line_contrast"] >= 80.0)
     return (item["flatness"] <= 1.3 and item["solidity"] >= 0.85
             and 0.45 <= item["extent"] < 0.96 and item["outline"] >= min_outline
             and item["body"] >= 0.55)
@@ -91,14 +101,25 @@ def _solidity(mask):
     return float(mask.sum()) / hull if hull > 0 else 0.0
 
 
-def scan(rgb, floor=120, min_area=0.003, max_area=0.6):
-    """Yield every flat, unsaturated region with the measurements used to judge it."""
-    h, w = rgb.shape[:2]
+def scan(rgb, floor=120, min_area=0.003, max_area=0.6, ceiling=60):
+    """Yield every flat region that could be a bubble, with the measurements used to judge it.
+
+    Two kinds are looked for: a light, unsaturated fill inside a dark outline, and a
+    near-black fill (darker than `ceiling`) inside a bright outline.
+    """
     lum = luminance(rgb.astype(np.float32))
     mn = rgb.min(axis=2)
     mx = rgb.max(axis=2)
-    local_range = ndi.maximum_filter(lum, size=3) - ndi.minimum_filter(lum, size=3)
-    flat = (local_range <= 8.0) & ((mx.astype(np.int16) - mn) <= 32) & (lum >= floor)
+    smooth = (ndi.maximum_filter(lum, size=3) - ndi.minimum_filter(lum, size=3)) <= 8.0
+    light = smooth & ((mx.astype(np.int16) - mn) <= 32) & (lum >= floor)
+    for item in _scan_pass(rgb, lum, light, False, min_area, max_area):
+        yield item
+    for item in _scan_pass(rgb, lum, smooth & (lum <= ceiling), True, min_area, max_area):
+        yield item
+
+
+def _scan_pass(rgb, lum, flat, dark_fill, min_area, max_area):
+    h, w = rgb.shape[:2]
     labels, count = ndi.label(flat)
     if count == 0:
         return
@@ -109,7 +130,7 @@ def scan(rgb, floor=120, min_area=0.003, max_area=0.6):
         if area < total * min_area * 0.6 or area > total * max_area:
             continue
         ring_w = max(3, int(0.015 * np.sqrt(area)))
-        pad = ring_w + 5
+        pad = 2 * ring_w + 12
         y0 = max(0, sl[0].start - pad)
         y1 = min(h, sl[0].stop + pad)
         x0 = max(0, sl[1].start - pad)
@@ -124,15 +145,27 @@ def scan(rgb, floor=120, min_area=0.003, max_area=0.6):
         fill_lum = color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114
         ys, xs = np.nonzero(filled)
         box = (ys.max() - ys.min() + 1) * (xs.max() - xs.min() + 1)
-        # Outline: the share of the perimeter that has a dark line right next to it.
+        # Outline: the share of the perimeter that has a line right next to it: a dark
+        # line around a light bubble, a bright one around a dark bubble.
         # Measured along the edge, not by ring area, so a thin line counts in full.
         # Where the region runs into the image border there is no line: that part
         # counts as open.
         reach = ring_w + 3
         band = ndi.binary_dilation(filled, iterations=reach) & ~filled
-        dark = band & (lum[y0:y1, x0:x1] < min(110.0, fill_lum - 40.0))
+        if dark_fill:
+            line = band & (lum[y0:y1, x0:x1] > fill_lum + 70.0)
+        else:
+            line = band & (lum[y0:y1, x0:x1] < min(110.0, fill_lum - 40.0))
         edge = ndi.binary_dilation(filled) & ~filled
-        covered = int((ndi.binary_dilation(dark, iterations=reach) & edge).sum())
+        covered = int((ndi.binary_dilation(line, iterations=reach) & edge).sum())
+        # Is it a line, or just a different background? Compare its color with what
+        # lies further out. A black shoe on a light floor has no line around it.
+        contrast = 0.0
+        beyond = (ndi.binary_dilation(filled, iterations=2 * reach + 2)
+                  & ~ndi.binary_dilation(filled, iterations=reach + 1))
+        if line.any() and beyond.any():
+            crop = rgb[y0:y1, x0:x1].astype(np.float32)
+            contrast = float(np.linalg.norm(np.median(crop[line], axis=0) - np.median(crop[beyond], axis=0)))
         on_border = 0
         if y0 == 0:
             on_border += int(filled[0].sum())
@@ -156,12 +189,18 @@ def scan(rgb, floor=120, min_area=0.003, max_area=0.6):
             sizes[0] = 0
             core = core_labels == int(sizes.argmax())
         body = (ndi.distance_transform_edt(~core) <= radius) & filled
+        bubble = Bubble(y0, x0, comp, filled, body, color)
+        if dark_fill:
+            bubble.dark = True
+            if line.any():
+                bubble.outline_color = tuple(int(v) for v in np.median(rgb[y0:y1, x0:x1][line], axis=0))
         yield {
-            "bubble": Bubble(y0, x0, comp, filled, body, color),
+            "bubble": bubble,
             "flatness": float(pixels.mean(axis=1).std()),
             "solidity": _solidity(filled),
             "extent": filled_area / float(box),
             "outline": outline,
+            "line_contrast": contrast,
             "body": float(body.sum()) / filled_area,
         }
 

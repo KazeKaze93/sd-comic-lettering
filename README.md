@@ -29,7 +29,7 @@ Restart the host afterwards.
 
 ### A1111 / Forge / reForge
 
-The `Comic Lettering` panel sits under the result gallery, in txt2img and img2img.
+The `Comic Lettering` panel sits under the result gallery, in txt2img and img2img. It starts collapsed.
 
 1. Generate an image.
 2. Type the text and press **Apply**. The images of the last generation are lettered again from their clean copies, so nothing is generated twice. Change the text, the font or any option and press Apply again.
@@ -50,37 +50,56 @@ Add the `Comic Lettering` node (category `image/postprocessing`) between `VAE De
 Three fields:
 
 - **Bubbles**: one line per bubble, in reading order (top to bottom, left to right). An empty line skips a bubble. Line breaks inside a bubble are placed automatically, at the largest font size that fits, and so that the lines form a diamond: short at the top and bottom, long in the middle.
-- **Caption**: text drawn straight onto the art, outside the bubbles. With `auto` placement it takes the calmer of top and bottom and keeps off the bubbles.
-- **SFX**: sound effects, one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the caption and the other effects. **Move SFX** puts them somewhere else; press it until they sit well.
+- **Caption**: text drawn straight onto the art, outside the bubbles, or inside a bubble drawn for it. With `auto` placement it takes the calmer of top and bottom and keeps off the bubbles.
+- **SFX**: sound effects, one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the caption and the other effects. `FAP x5` stacks the word five times in a ragged column. **Move SFX** puts them somewhere else; press it until they sit well.
 
-`*word*` makes a word bigger. A word may break after a hyphen (`H-m-m`) when that lets the text be bigger.
+In any field:
+
+- `*word*` makes a word bigger.
+- `♥` (or `<3`), `★`, `✦`, `♪`, `💢`, `💧` are drawn as shapes: heart, star, sparkle, note, anger mark, drop.
+- A word may break after a hyphen (`H-m-m`) when that lets the text be bigger.
 
 **Bubble numbers** draws each bubble's number instead of the text, to see which bubbles were found and in what order.
 
 A line goes into a bubble only if it fits at a readable size (`bubble_min_size`). A bubble too small for it is passed over, and lines left without a bubble are added to the caption. Untick `Text that does not fit a bubble goes to the caption` to always write into the bubbles, however small, and drop the lines left over.
 
-### Options
+### Look
+
+Each kind of text (bubbles, caption, SFX) has its own row of lists. Changing any list re-applies the text at once.
+
+| List | What it does |
+|---|---|
+| Font | Every entry of the list is drawn in its own font. The caption can use the bubble font or its own. |
+| Colors | `auto` is white with a dark outline (black text inside a light bubble), or the colors typed under `Fine tuning`. `pink`, `gold`, `candy`, `ice`, `blood`, `neon green`, `black on white` are presets with a second outline, a gradient or a glow where it fits. `from the art` takes the strongest color of the image. |
+| Mood | How unruly the letters are. `calm`: straight. `playful`: letters of different sizes, lines tilted. `shout`: more of both. `shaky`: trembling letters. `rough`: ragged, angular edges. `custom`: the sliders under `Fine tuning`. |
+| Extras | Small marks scattered around a caption or an effect: hearts, sparkles, stars, notes, sweat drops, anger marks, motion lines. |
+
+The caption has one more row:
+
+| List | What it does |
+|---|---|
+| Placement | `auto`, `top`, `bottom`, `center`, or a corner. |
+| Draw a bubble | Puts the caption in a bubble drawn for it: `oval`, `box`, `cloud` or `burst`. With `auto` placement the bubble goes to a calm, free spot. |
+| Theme | `light`: white bubble, dark outline. `dark`: black bubble with the outline and the text in the chosen colors. |
+| Tail | Which way the tail points, or none. |
+
+### Fine tuning
 
 | Option | What it does |
 |---|---|
-| `placement` | Caption position: `top`, `bottom`, `center`, or `auto` (the calmer of top and bottom). |
-| `font` | Fonts from `fonts/` first, then comic-looking system fonts. |
 | `uppercase` | Comic-style capitals. |
-| `bubble_size` | Bubble text: largest font size tried, % of image height. The biggest size that fits is used. |
+| `erase_ai_text` | Erase the model's letters before writing. |
+| `bubble_size` | Bubble text: largest font size tried, % of image height. |
 | `bubble_min_size` | Smallest bubble font size still considered readable, % of image height. |
-| `free_size` | Caption: font size, % of image height. |
-| `text_color`, `stroke_color` | `auto` or `#RRGGBB`. |
-| `stroke_width`, `shadow` | Outline and drop shadow of the caption. |
-| `jitter` | Per-letter wobble of baseline and angle, so the text does not look typeset. |
+| `margin` | Gap between the text and the bubble edge. |
+| `free_size`, `stroke_width`, `shadow` | Caption: font size, outline width and drop shadow. |
+| `sfx_size`, `sfx_tilt`, `sfx_opacity` | Sound effects: size, the largest random tilt, transparency. |
+| `text_color`, `stroke_color`, `sfx_color` | `auto` or `#RRGGBB`. Used when the Colors list is `auto`. |
+| `jitter`, `size_jitter`, `rough`, `line_tilt`, `line_shift`, `line_spacing` | The `custom` mood: letter wobble, letters of different sizes, ragged edges, tilt and sideways shift of each line, distance between lines. |
 | `arc`, `rotation` | Bend and tilt of the whole block. |
 | `soften`, `grain`, `opacity` | Blur, uneven ink and transparency, to blend the letters with the art. |
-| `margin` | Gap between the text and the bubble edge. |
-| `erase_ai_text` | Erase the model's letters before writing. |
-| `white_threshold` | Darkest bubble fill that still counts (default 120). Raise it if a gray object gets lettered. |
-| `seed` | Seed of the jitter. |
-| `sfx_font`, `sfx_size`, `sfx_color`, `sfx_opacity` | Look of the sound effects. `auto` color is white with a dark outline. |
-| `sfx_tilt` | Each effect is tilted by a random angle up to this many degrees. |
-| `sfx_seed` | Where the effects land and how they tilt. `Move SFX` raises it by one. |
+| `white_threshold` | Darkest light-bubble fill that still counts (default 120). Raise it if a gray object gets lettered. |
+| `seed`, `sfx_seed` | Seeds of the letter wobble and of the effect placement. `Move SFX` raises the second by one. |
 
 ## Fonts
 
@@ -95,7 +114,7 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 
 ## Limits
 
-- A bubble is detected as a flat white or gray fill (any brightness above `white_threshold`), enclosed by a dark outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, bubbles with a gradient fill and rectangular caption boxes are not found.
+- A bubble is detected as a flat white or gray fill (any brightness above `white_threshold`) enclosed by a dark outline, or a flat near-black fill enclosed by a bright outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, translucent or gradient bubbles and rectangular caption boxes are not found. Dark bubbles are calibrated on a single example: expect misses.
 - Anything else that looks the same gets lettered too, such as a blank sheet of paper on a wall. Use `Bubble numbers` to see what was found and an empty line to skip it.
 - A narrow bubble cannot hold a long word at a readable size. Such text goes to the caption.
 - No face detection: the caption and the sound effects can land on a character. Flat skin counts as an empty area. Pick the caption placement by hand, and press `Move SFX` until the effects sit well.

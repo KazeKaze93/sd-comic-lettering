@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--no-spill", action="store_true",
                         help="always write into the bubbles, drop lines left over")
     parser.add_argument("--placement", choices=PLACEMENTS, default="auto")
+    parser.add_argument("--caption-font", default="")
     parser.add_argument("--font", default=font_names()[0])
     parser.add_argument("--no-uppercase", action="store_true")
     parser.add_argument("--no-erase", action="store_true")
@@ -33,6 +34,9 @@ def main():
     parser.add_argument("--text-color", default="auto")
     parser.add_argument("--stroke-color", default="auto")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--opt", action="append", default=[], metavar="NAME=VALUE",
+                        help="any other Style option, e.g. --opt caption_colors=pink "
+                             "--opt sfx_mood=shaky --opt caption_bubble=oval")
     args = parser.parse_args()
     style = Style(font=args.font, uppercase=not args.no_uppercase, text_color=args.text_color,
                   stroke_color=args.stroke_color, stroke_width=args.stroke_width,
@@ -41,7 +45,14 @@ def main():
                   free_size=args.free_size, bubble_size=args.bubble_size,
                   bubble_min_size=args.bubble_min_size, margin=args.margin, seed=args.seed,
                   sfx_font=args.sfx_font, sfx_size=args.sfx_size, sfx_color=args.sfx_color,
-                  sfx_tilt=args.sfx_tilt, sfx_opacity=args.sfx_opacity, sfx_seed=args.sfx_seed)
+                  sfx_tilt=args.sfx_tilt, sfx_opacity=args.sfx_opacity, sfx_seed=args.sfx_seed,
+                  caption_font=args.caption_font)
+    for item in args.opt:
+        name, _, value = item.partition("=")
+        if not hasattr(style, name):
+            parser.error("unknown option: " + name)
+        current = getattr(style, name)
+        setattr(style, name, type(current)(value) if isinstance(current, (int, float)) else value)
     image, info = letter(Image.open(args.src), args.text.replace("\\n", "\n"),
                          caption=args.caption.replace("\\n", "\n"), spill=not args.no_spill,
                          placement=args.placement, style=style, erase=not args.no_erase,
