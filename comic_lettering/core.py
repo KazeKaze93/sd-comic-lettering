@@ -12,7 +12,7 @@ from scipy import ndimage as ndi
 
 from .detect import detect_bubbles, edge_energy, erase_letters, luminance
 from .people import person_mask
-from .render import (EXTRAS, MOODS, PALETTES, Paint, Style, _solid, block_size, bubble_shape,
+from .render import (EXTRAS, MOODS, PALETTES, SYMBOLS, Paint, Style, _solid, block_size, bubble_shape,
                      decorate, get_fonts, layout, layout_shaped, line_heights, parse_color,
                      parse_text, paste_centered, render_block, shape_score, stem_ratio)
 
@@ -89,18 +89,20 @@ def letter(image, text="", caption="", spill=True, placement="auto", style=None,
     for bubble in bubbles:
         h, w = bubble.filled.shape
         static[bubble.y0:bubble.y0 + h, bubble.x0:bubble.x0 + w] |= bubble.filled
+    # What must not be covered even when there is no free place: bubbles and heads.
+    precious = static.copy()
     automatic = effects or (free and placement == "auto")
-    people = None
     if automatic:
         people = person_mask(rgb)
         info["characters"] = people is not None
         if people is not None:
             static |= people
+            precious |= _heads(people)
     energy = _energy(rgb) if (effects or (free and style.caption_bubble != "none")) else None
     caption_box = None
     if free:
         out, size, caption_box = _letter_free(out, rgb, "\n".join(free), placement, style, static,
-                                              palette(style, "caption", accent), energy, people)
+                                              palette(style, "caption", accent), energy, precious)
         info["free_text"] = True
         info["font_sizes"].append(size)
     if effects:
@@ -108,12 +110,27 @@ def letter(image, text="", caption="", spill=True, placement="auto", style=None,
         if caption_box is not None:
             x0, y0, x1, y1 = caption_box
             taken[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = True
-        out = _letter_sfx(out, rgb, effects, static, taken, style, palette(style, "sfx", accent), energy)
+        out = _letter_sfx(out, rgb, effects, static, taken, style, palette(style, "sfx", accent), energy,
+                          precious)
         info["sfx"] = len(effects)
     return out.convert("RGB"), info
 
 
 # ---------------------------------------------------------------- looks and colors
+
+def _heads(people):
+    """The top part of every character in a person mask: roughly the head and hair."""
+    labels, count = ndi.label(people)
+    heads = np.zeros_like(people)
+    smallest = 0.01 * people.size
+    for index, box in enumerate(ndi.find_objects(labels), start=1):
+        rows, cols = box
+        if (rows.stop - rows.start) * (cols.stop - cols.start) < smallest:
+            continue
+        top = slice(rows.start, rows.start + max(1, int(0.28 * (rows.stop - rows.start))))
+        heads[top, cols] |= labels[top, cols] == index
+    return heads
+
 
 def voice(style, which):
     """The style for one kind of text (bubble, caption, sfx): its font and its mood."""
@@ -337,9 +354,9 @@ def _anchor(placement, box_w, box_h, width, height):
     return cx, cy
 
 
-def _letter_free(image, rgb, text, placement, style, static, pal, energy, people=None):
+def _letter_free(image, rgb, text, placement, style, static, pal, energy, precious=None):
     if style.caption_bubble != "none":
-        return _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy)
+        return _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy, precious)
     height, width = rgb.shape[:2]
     look = voice(style, "caption")
     # Outlines make the lines taller: leave room for them.
@@ -361,12 +378,7 @@ def _letter_free(image, rgb, text, placement, style, static, pal, energy, people
         # face it is not.
         left = int(max(0, width / 2.0 - block_w / 2.0))
         right = int(min(width, width / 2.0 + block_w / 2.0))
-        heads = None
-        if people is not None and people.any():
-            rows_with_people = np.nonzero(people.any(axis=1))[0]
-            first, last = int(rows_with_people[0]), int(rows_with_people[-1])
-            heads = people.copy()
-            heads[first + int(0.25 * (last - first + 1)):] = False
+        heads = precious
 
         def cost(rows):
             covered = static[rows[0]:rows[1], left:right]
@@ -381,7 +393,7 @@ def _letter_free(image, rgb, text, placement, style, static, pal, energy, people
     cx, cy = _anchor(placement, block_w, block_h, width, height)
     paint = _paint(style, "caption", pal, size, look.font)
     layer = render_block(lines, size, look, paint)
-    layer = decorate(layer, EXTRAS.get(style.caption_extras), size, paint, style.seed)
+    layer = decorate(layer, EXTRAS.get(style.caption_extras), size, paint, style.seed, precious, (cx, cy))
     box = (int(cx - block_w / 2.0 - size), int(cy - block_h / 2.0 - size * 0.5),
            int(cx + block_w / 2.0 + size), int(cy + block_h / 2.0 + size * 0.5))
     return paste_centered(image, layer, cx, cy), size, box
@@ -415,26 +427,27 @@ def _drawn_bubble(paragraphs, look, style, size, width, height):
     return lines, size, fill_mask, outline, bx, by
 
 
-def _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy):
+def _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy, precious=None):
     """The caption inside a bubble drawn for it."""
     height, width = rgb.shape[:2]
     look = voice(style, "caption")
     paragraphs = parse_text(text, style.uppercase)
     full = max(8, int(style.free_size / 100.0 * height))
-    chosen = None
     if placement == "auto":
         # Shrink the bubble, down to 60%, until it fits clear of bubbles and characters.
+        # If no size fits, take the one that covers the least, heads counting most.
         table = _integral(static)
-        # If nothing fits, settle for a middle size: it covers less than the full one.
+        heavy = _integral(precious) if precious is not None else None
+        chosen = None
         for factor in (1.0, 0.85, 0.72, 0.6):
             drawn = _drawn_bubble(paragraphs, look, style, max(8, int(full * factor)), width, height)
-            x, y, clear = _calm_spot(energy, table, None, drawn[2].width, drawn[2].height, width, height,
-                                     random.Random(style.seed))
-            if clear or factor == 0.72 or chosen is None:
-                chosen = (drawn, x, y)
+            x, y, clear, score = _calm_spot(energy, table, None, drawn[2].width, drawn[2].height, width,
+                                            height, random.Random(style.seed), heavy)
+            if clear or chosen is None or score < chosen[0]:
+                chosen = (score, drawn, x, y)
             if clear:
                 break
-        (lines, size, fill_mask, outline, bx, by), x, y = chosen
+        _, (lines, size, fill_mask, outline, bx, by), x, y = chosen
     else:
         lines, size, fill_mask, outline, bx, by = _drawn_bubble(paragraphs, look, style, full, width, height)
         cx, cy = _anchor(placement, fill_mask.width, fill_mask.height, width, height)
@@ -452,7 +465,7 @@ def _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy
     y = max(0, min(y, height - bubble.height))
     center = (x + bubble.width / 2.0, y + bubble.height / 2.0)
     marks = Paint(pal["fill"] if pal else (255, 255, 255), line if style.caption_bubble_theme != "dark" else body)
-    shown = decorate(bubble, EXTRAS.get(style.caption_extras), size, marks, style.seed)
+    shown = decorate(bubble, EXTRAS.get(style.caption_extras), size, marks, style.seed, precious, center)
     image = paste_centered(image, shown, center[0], center[1])
     image = paste_centered(image, render_block(lines, size, look, Paint(ink)), x + bx, y + by)
     return image, size, (x, y, x + bubble.width, y + bubble.height)
@@ -474,14 +487,19 @@ def _energy(rgb):
     return _integral(energy)
 
 
-def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng):
-    """Top-left corner for a box, and whether it is clear of the static obstacles.
+def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=None):
+    """A place for a box: (x, y, clear, score).
 
-    Candidates clear of the static obstacles (bubbles, characters) are ranked by how
-    calm the art is under them, and rng picks one of the calmest quarter. That choice
-    depends only on the image and the box, so it stays put when styles change. If the
-    pick collides with `taken` (the caption, earlier effects), the next free one in
-    the ranking is used. static and taken are summed-area tables; taken may be None.
+    Candidates clear of the static obstacles (bubbles, characters) and not among the
+    busiest third of them are all acceptable; rng picks a random point of the image
+    and the candidate nearest to it wins, so repeated picks spread over the whole art.
+    The choice depends only on the image and the box, so it stays put when styles
+    change. If the pick collides with `taken` (the caption, earlier effects), the next
+    nearest free one is used.
+
+    When nothing is clear, the box goes where it covers the least, and `heavy` (heads,
+    bubbles) counts several times more than the rest; score tells how bad that is.
+    static, taken and heavy are summed-area tables; taken and heavy may be None.
     """
     box_w, box_h = int(box_w), int(box_h)
     margin = int(0.02 * min(width, height))
@@ -489,36 +507,36 @@ def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng):
     xs = np.arange(margin, width - box_w - margin + 1, stride)
     ys = np.arange(margin, height - box_h - margin + 1, stride)
     if len(xs) == 0 or len(ys) == 0:
-        return max(0, (width - box_w) // 2), max(0, (height - box_h) // 2), False
+        return max(0, (width - box_w) // 2), max(0, (height - box_h) // 2), False, float("inf")
     area = float(max(1, box_w * box_h))
 
     def boxes(table):
-        return (table[np.ix_(ys + box_h, xs + box_w)] - table[np.ix_(ys, xs + box_w)]
-                - table[np.ix_(ys + box_h, xs)] + table[np.ix_(ys, xs)]) / area
+        return ((table[np.ix_(ys + box_h, xs + box_w)] - table[np.ix_(ys, xs + box_w)]
+                 - table[np.ix_(ys + box_h, xs)] + table[np.ix_(ys, xs)]) / area).ravel()
 
     cost = boxes(energy)
     blocked = boxes(static)
-    clear = blocked < 0.002
-    found = bool(clear.any())
+    clear = np.nonzero(blocked < 0.002)[0]
+    found = len(clear) > 0
+    target_x, target_y = rng.random() * width, rng.random() * height
     if found:
-        cost = np.where(clear, cost, np.inf)
-        pool = max(1, int(clear.sum() * 0.25))
-    else:  # nowhere is clear: cover as little as possible
-        cost = cost + 1000.0 * blocked
-        pool = max(1, int(cost.size * 0.03))
-    order = np.argsort(cost, axis=None)
-    start = rng.randrange(pool)
-    pick = int(order[start])
+        calm = clear[cost[clear] <= np.quantile(cost[clear], 0.7)]
+        center_x = xs[calm % len(xs)] + box_w / 2.0
+        center_y = ys[calm // len(xs)] + box_h / 2.0
+        order = calm[np.argsort((center_x - target_x) ** 2 + (center_y - target_y) ** 2)]
+        score = 0.0
+    else:
+        total = cost + 1000.0 * blocked
+        if heavy is not None:
+            total = total + 6000.0 * boxes(heavy)
+        order = np.argsort(total)[:max(1, int(total.size * 0.02))]
+        score = float(total[order[0]])
+    pick = int(order[0])
     if taken is not None:
-        busy = boxes(taken).ravel()
-        ranked = np.concatenate([order[start:], order[:start]])
-        usable = np.isfinite(cost.ravel()[ranked])
-        free = np.nonzero((busy[ranked] < 0.002) & usable)[0]
-        if len(free):
-            pick = int(ranked[free[0]])
-        elif usable.any():  # everything is taken: overlap the least
-            pick = int(ranked[usable][np.argmin(busy[ranked][usable])])
-    return int(xs[pick % len(xs)]), int(ys[pick // len(xs)]), found
+        busy = boxes(taken)[order]
+        free = np.nonzero(busy < 0.002)[0]
+        pick = int(order[free[0]]) if len(free) else int(order[int(np.argmin(busy))])
+    return int(xs[pick % len(xs)]), int(ys[pick // len(xs)]), found, score
 
 
 def _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height):
@@ -542,10 +560,11 @@ def _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height):
     return (layer.crop(bounds) if bounds else None), paint, size
 
 
-def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy):
+def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy, precious=None):
     height, width = rgb.shape[:2]
     base_look = voice(style, "sfx")
     static_table = _integral(static)
+    heavy = _integral(precious) if precious is not None else None
     for index, effect in enumerate(effects):
         # Two random streams, both independent of the look: one for the size and tilt,
         # one for the place. Changing fonts, colors or moods then moves nothing.
@@ -557,11 +576,12 @@ def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy):
         count = min(12, int(repeat.group(2))) if repeat else 1
         word = repeat.group(1) if repeat and count > 1 else effect
         # The place is chosen for a nominal box that depends on the text and size only.
-        longest = max([len(part) for part in word.replace("*", "").split()] or [1]) if count > 1 else len(word)
-        frame = 1.5 * size  # room for the marks, reserved even when there are none
-        nominal_w = int(min(width * 0.9, longest * 0.55 * size + size + frame))
-        nominal_h = int(min(height * 0.9, size * (1.3 if count == 1 else 0.75 * count + 0.6) + frame))
-        x, y, _ = _calm_spot(energy, static_table, _integral(taken), nominal_w, nominal_h, width, height, place)
+        # Its width is estimated per character, not measured, so the font does not matter.
+        units = sum(0.95 if ch in SYMBOLS else 0.3 if ch.isspace() else 0.5 for ch in word.replace("*", ""))
+        nominal_w = int(min(width * 0.9, (units + 0.8) * size))
+        nominal_h = int(min(height * 0.9, size * (1.4 if count == 1 else 0.75 * count + 0.8)))
+        x, y, _, _ = _calm_spot(energy, static_table, _integral(taken), nominal_w, nominal_h, width, height,
+                                place, heavy)
         taken[max(0, y):y + nominal_h, max(0, x):x + nominal_w] = True
         if count > 1:
             # "FAP x5": the word several times in a ragged column.
@@ -581,18 +601,21 @@ def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy):
             for piece, shift in rows:
                 layer.alpha_composite(piece, (max(0, (layer.width - piece.width) // 2 + shift), int(top)))
                 top += piece.height * 0.72
+            bounds = layer.getbbox()
+            if bounds is None:
+                continue
+            layer = layer.crop(bounds)
         else:
             layer, paint, size = _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height)
             if layer is None:
                 continue
-        layer = decorate(layer, EXTRAS.get(style.sfx_extras), size, paint, seed)
-        bounds = layer.getbbox()
-        if bounds is None:
-            continue
-        layer = layer.crop(bounds)
         if layer.width > width * 0.9 or layer.height > height * 0.9:
             layer.thumbnail((int(width * 0.9), int(height * 0.9)), Image.LANCZOS)
         cx = min(max(x + nominal_w / 2.0, layer.width / 2.0), width - layer.width / 2.0)
         cy = min(max(y + nominal_h / 2.0, layer.height / 2.0), height - layer.height / 2.0)
+        # An effect made of symbols alone gets no marks around it: hearts around hearts.
+        plain = [ch for ch in word if not ch.isspace() and ch != "*"]
+        kind = None if plain and all(ch in SYMBOLS for ch in plain) else EXTRAS.get(style.sfx_extras)
+        layer = decorate(layer, kind, size, paint, seed, static, (cx, cy))
         image = paste_centered(image, layer, cx, cy)
     return image

@@ -24,6 +24,7 @@ SETTINGS_FILE = os.path.join(_BASE, "user_settings.json")
 SAME_FONT = "same as bubbles"
 SFX_FONT = "Bangers"
 FIELDS = ["Bubbles", "Caption", "SFX"]
+FONT_KEYS = ["font", "caption_font", "sfx_font"]
 # Marks that are drawn as shapes; the buttons insert them, since a keyboard cannot.
 SYMBOLS = [(u"\u2665", "heart"), (u"\u2605", "star"), (u"\u2726", "sparkle"), (u"\u266a", "note"),
            (u"\U0001F4A2", "anger"), (u"\U0001F4A7", "drop")]
@@ -250,6 +251,7 @@ class ComicLetteringScript(scripts.Script):
             with gr.Row():
                 enabled = gr.Checkbox(label="Every new image", value=False, min_width=160)
                 numbers = gr.Checkbox(label="Bubble numbers", value=False, min_width=160)
+                keep_fonts = gr.Checkbox(label="Reset keeps fonts", value=True, min_width=160)
             status = gr.HTML(value="")
             with gr.Row():
                 pick("font", "Bubbles: font", fonts)
@@ -316,12 +318,12 @@ class ComicLetteringScript(scripts.Script):
         remembered = [c[key] for key in ORDER]
         controls = [enabled, text, caption, numbers, sfx] + remembered
         # The values live in user_settings.json; keep the host's ui-config.json out of it.
-        for component in controls + [status, target]:
+        for component in controls + [status, target, keep_fonts]:
             component.do_not_save_to_config = True
         self.panel = panel
         self.rendered = not deferred
         self.parts = {"apply": apply_button, "clean": clean_button, "shuffle": shuffle_button,
-                      "reset": reset_button, "clear": clear_buttons, "symbols": symbol_buttons,
+                      "reset": reset_button, "keep_fonts": keep_fonts, "clear": clear_buttons, "symbols": symbol_buttons,
                       "target": target, "status": status, "text": text, "caption": caption, "sfx": sfx,
                       "numbers": numbers, "remembered": remembered, "sfx_seed": c["sfx_seed"],
                       "instant": [c[key] for key in ORDER if isinstance(c[key], gr.Dropdown)]}
@@ -361,7 +363,9 @@ class ComicLetteringScript(scripts.Script):
             dropdown.change(fn=self.apply_quiet, inputs=inputs, outputs=outputs)
         parts["shuffle"].click(fn=self.move_sfx, inputs=inputs, outputs=outputs + [parts["sfx_seed"]])
         parts["clean"].click(fn=self.show_clean, inputs=[], outputs=outputs)
-        parts["reset"].click(fn=self.reset_options, inputs=[], outputs=parts["remembered"])
+        font_lists = [parts["remembered"][ORDER.index(key)] for key in FONT_KEYS]
+        parts["reset"].click(fn=self.reset_options, inputs=[parts["keep_fonts"]] + font_lists,
+                             outputs=parts["remembered"])
         fields = [parts["text"], parts["caption"], parts["sfx"]]
         for button, field in zip(parts["clear"], fields):
             button.click(fn=lambda: "", inputs=[], outputs=[field], show_progress=False)
@@ -417,9 +421,12 @@ class ComicLetteringScript(scripts.Script):
             return self.reply(note("Nothing to restore: generate an image first."))
         return self.reply(note("Text removed: showing the clean image."), list(clean))
 
-    def reset_options(self):
-        """Put every remembered option back to its default."""
-        values = clean_values(dict(DEFAULTS))
+    def reset_options(self, keep_fonts=False, *fonts):
+        """Put every remembered option back to its default; the fonts stay if asked."""
+        values = dict(DEFAULTS)
+        if keep_fonts:
+            values.update(dict(zip(FONT_KEYS, fonts)))
+        values = clean_values(values)
         save_settings(values)
         return [values[key] for key in ORDER]
 

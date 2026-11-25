@@ -595,10 +595,24 @@ def _finish(layer, style):
     return Image.fromarray((out * 255 + 0.5).astype(np.uint8), "RGBA")
 
 
-def decorate(layer, kind, size, paint, seed):
+def _mark_fits(avoid, center, canvas_size, x, y, w, h):
+    """May a mark be drawn at (x, y) of the canvas? Not over `avoid`, not cut by the image edge."""
+    if avoid is None or center is None:
+        return True
+    rows, cols = avoid.shape
+    x0 = int(round(center[0] - canvas_size[0] / 2.0 + x))
+    y0 = int(round(center[1] - canvas_size[1] / 2.0 + y))
+    if x0 < 0 or y0 < 0 or x0 + w > cols or y0 + h > rows:
+        return False
+    return float(avoid[y0:y0 + h, x0:x0 + w].mean()) < 0.05
+
+
+def decorate(layer, kind, size, paint, seed, avoid=None, center=None):
     """Scatter marks (or action lines) around a rendered block.
 
-    Returns a larger layer with the block still in its center.
+    Returns a larger layer with the block still in its center. avoid is a boolean mask
+    of the image and center the place the block will be pasted at: a mark that would
+    land on the mask or be cut by the image edge is moved along the frame, or left out.
     """
     if not kind:
         return layer
@@ -622,9 +636,12 @@ def decorate(layer, kind, size, paint, seed):
             x0, y0 = cx + rx * start * dx, cy + ry * start * dy
             length = size * rng.uniform(0.7, 1.5)
             half = size * rng.uniform(0.08, 0.14)
-            wedge = [(x0 - dy * half, y0 + dx * half), (x0 + dy * half, y0 - dx * half),
-                     (x0 + dx * length, y0 + dy * length)]
-            draw.polygon(wedge, fill=tuple(stroke) + (255,))
+            x1, y1 = x0 + dx * length, y0 + dy * length
+            if not _mark_fits(avoid, center, canvas.size, min(x0, x1) - half, min(y0, y1) - half,
+                              int(abs(x1 - x0) + 2 * half) + 1, int(abs(y1 - y0) + 2 * half) + 1):
+                continue
+            draw.polygon([(x0 - dy * half, y0 + dx * half), (x0 + dy * half, y0 - dx * half), (x1, y1)],
+                         fill=tuple(stroke) + (255,))
             inset = max(1.0, size * 0.03)
             inner = [(x0 + dx * inset - dy * (half - inset), y0 + dy * inset + dx * (half - inset)),
                      (x0 + dx * inset + dy * (half - inset), y0 + dy * inset - dx * (half - inset)),
@@ -637,18 +654,22 @@ def decorate(layer, kind, size, paint, seed):
         count = rng.randint(5, 7)
         start = rng.uniform(0, 2 * math.pi)
         for index in range(count):
-            angle = start + 2 * math.pi * index / count + rng.uniform(-0.25, 0.25)
+            base = start + 2 * math.pi * index / count + rng.uniform(-0.25, 0.25)
             px = int(size * rng.uniform(0.5, 0.85))
             grow = max(2, int(px * 0.12))
             tile = Image.alpha_composite(_solid(stroke, symbol_tile(kind, px, grow)),
                                          _solid(paint.fill, _pad_tile(symbol_tile(kind, px, 0), grow)))
             tile = tile.rotate(rng.uniform(-25, 25), resample=Image.BICUBIC, expand=True)
-            reach = min(rx / max(1e-6, abs(math.cos(angle))), ry / max(1e-6, abs(math.sin(angle))))
-            x = int(cx + reach * math.cos(angle) - tile.width / 2.0)
-            y = int(cy + reach * math.sin(angle) - tile.height / 2.0)
-            x = max(0, min(x, canvas.width - tile.width))
-            y = max(0, min(y, canvas.height - tile.height))
-            canvas.alpha_composite(tile, (x, y))
+            for shift in (0.0, 0.35, -0.35, 0.7, -0.7):  # slide along the frame to a free place
+                angle = base + shift
+                reach = min(rx / max(1e-6, abs(math.cos(angle))), ry / max(1e-6, abs(math.sin(angle))))
+                x = int(cx + reach * math.cos(angle) - tile.width / 2.0)
+                y = int(cy + reach * math.sin(angle) - tile.height / 2.0)
+                x = max(0, min(x, canvas.width - tile.width))
+                y = max(0, min(y, canvas.height - tile.height))
+                if _mark_fits(avoid, center, canvas.size, x, y, tile.width, tile.height):
+                    canvas.alpha_composite(tile, (x, y))
+                    break
     canvas.alpha_composite(layer, (margin, margin))
     return canvas
 

@@ -68,7 +68,7 @@ def status():
     return "character detection: off (no ultralytics or no %s found)" % MODEL_PATTERN
 
 
-def person_mask(rgb, grow=0.012):
+def person_mask(rgb, grow=0.022):
     """Boolean mask of the characters in an RGB uint8 array, or None when unavailable.
 
     The mask is grown a little so text does not touch the silhouette.

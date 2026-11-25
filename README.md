@@ -40,7 +40,7 @@ The `Comic Lettering` panel sits under the result gallery, in txt2img and img2im
 | `Apply` | Letters the images of the last generation. |
 | `Remove text` | Shows those images as they were generated, without any lettering. |
 | `Move SFX` | Puts the sound effects somewhere else. |
-| `Reset options` | Puts every list and slider back to its default. |
+| `Reset options` | Puts every list and slider back to its default. With `Reset keeps fonts` ticked the three font lists stay. |
 | `Clear bubbles` / `caption` / `sfx` | Empties that text field. |
 | `♥` `★` `✦` `♪` `💢` `💧` | Adds that mark to the field chosen under `Insert a symbol into`. |
 
@@ -130,6 +130,7 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 - A bubble is detected as a flat white or gray fill (any brightness above `white_threshold`) enclosed by a dark outline, or a flat near-black fill enclosed by a bright outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, translucent or gradient bubbles and rectangular caption boxes are not found. Dark bubbles are calibrated on a single example: expect misses.
 - Anything else that looks the same gets lettered too, such as a blank sheet of paper on a wall. Use `Bubble numbers` to see what was found and an empty line to skip it.
 - A narrow bubble cannot hold a long word at a readable size. Such text goes to the caption.
-- When a character fills most of the frame there may be no free place: a drawn bubble is then shrunk, down to 60%, and put where it covers the least. A caption with a fixed placement (`top`, a corner) avoids nothing.
+- When a character fills most of the frame there may be no free place: a drawn bubble is then shrunk, down to 60%, and put where it covers the least, keeping off heads and bubbles first. The head is taken to be the top quarter of a character, so this fails for a character lying down or upside down.
+- Marks around a text are left out where they would land on a character or be cut by the image edge. An effect made of symbols alone gets no marks. A caption with a fixed placement (`top`, a corner) avoids nothing.
 - The place of a sound effect is chosen for an estimated box, so a very wide font can make two effects touch.
 - No emoji fallback font.
