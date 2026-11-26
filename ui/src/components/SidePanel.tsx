@@ -364,7 +364,7 @@ export function SidePanel() {
   const fold = (id: SectionId) => (value: boolean) => setOpen(id, value)
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-cl-border bg-cl-surface p-3">
+    <aside className="relative flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-cl-border bg-cl-surface p-3">
       <Section
         id="cl-bubbles"
         title="Bubbles"

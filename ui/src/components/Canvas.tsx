@@ -614,7 +614,7 @@ function Handle({ item, slot, scale, view, frames }: { item: SceneItem; slot: Sl
           selected ? tone.wash : ''
         } outline-none`}
       />
-      <span className={`pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-cl-bg/80 px-1 text-[11px] leading-4 ${tone.text}`}>
+      <span className={`pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-cl-bg px-1 text-[11px] leading-4 ${tone.text}`}>
         {NAMES[item.kind]}
         {pinned ? ' · placed by hand' : ''}
       </span>
