@@ -1,4 +1,5 @@
 """Speech bubble detection: light, outlined, reasonably solid regions."""
+import hashlib
 from typing import List, Tuple
 
 import numpy as np
@@ -48,11 +49,20 @@ def detect_bubbles(rgb, white_threshold=120, min_area=0.0015, max_area=0.6,
     nearly convex shape. Its brightness does not matter beyond white_threshold: models
     with a muted palette draw gray bubbles, sometimes darker than the wall behind.
     """
-    found = []
-    for item in scan(rgb, white_threshold, min_area, max_area):
-        if is_bubble(item, min_outline):
-            found.append(item["bubble"])
-    return _reading_order(found, rtl)
+    # Finding the bubbles is the slowest step, and the same image is asked about again and
+    # again: by arrange() and by draw(), and on every change made in the editor.
+    key = (hashlib.md5(np.ascontiguousarray(rgb).tobytes()).hexdigest(), rgb.shape, white_threshold, min_area,
+           max_area, min_outline)
+    found = _FOUND.get(key)
+    if found is None:
+        found = [item["bubble"] for item in scan(rgb, white_threshold, min_area, max_area) if is_bubble(item, min_outline)]
+        while len(_FOUND) >= 6:
+            _FOUND.pop(next(iter(_FOUND)))
+        _FOUND[key] = found
+    return _reading_order(list(found), rtl)
+
+
+_FOUND = {}  # the bubbles of the last few images asked about; the Bubble objects are never changed
 
 
 SMALL = 0.003  # share of the image below which a bubble has to pass the stricter test

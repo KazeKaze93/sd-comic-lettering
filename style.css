@@ -1,30 +1,6 @@
-/* The Comic Lettering icon in the row of tools under Generate. It takes the host's own
-   colors, so it sits beside the other tool buttons in any theme. */
-.sdcl-tool-btn {
-    flex: 0 0 auto !important;
-    min-width: 42px !important;
-    width: 42px !important;
-    height: 36px !important;
-    padding: 8px 12px !important;
-    margin: 0 !important;
-    align-self: center !important;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid var(--border-color-primary, #374151);
-    border-radius: 6px;
-    background: var(--button-secondary-background-fill, #1f2937);
-    color: var(--body-text-color, #d1d5db);
-    cursor: pointer;
-    box-sizing: border-box;
-}
-
-.sdcl-tool-btn:hover {
-    background: var(--button-secondary-background-fill-hover, #374151);
-    border-color: var(--color-accent, #6366f1);
-    color: #fff;
-}
-
+/* The Comic Lettering icon in the row of tools under Generate. The page script gives the
+   button the classes and the measured look of a tool button the host made itself, so only
+   the drawing inside is sized here. */
 .sdcl-tool-btn svg {
     width: 18px;
     height: 18px;

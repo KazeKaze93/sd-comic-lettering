@@ -139,6 +139,41 @@
         return button;
     }
 
+    // The icon takes the look of a tool button the host itself made, whatever the theme:
+    // its classes, and the sizes and colors the browser worked out for it.
+    var LOOK = ['backgroundColor', 'backgroundImage', 'borderTopColor', 'borderRightColor', 'borderBottomColor',
+        'borderLeftColor', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+        'borderTopStyle', 'borderRightStyle', 'borderBottomStyle', 'borderLeftStyle', 'borderTopLeftRadius',
+        'borderTopRightRadius', 'borderBottomLeftRadius', 'borderBottomRightRadius', 'boxShadow', 'color',
+        'width', 'height', 'minWidth', 'maxWidth', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+        'marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'flexGrow', 'flexShrink', 'flexBasis', 'alignSelf'];
+
+    function dress(button, row) {
+        var others = row.querySelectorAll('button');
+        var model = null;
+        for (var i = 0; i < others.length; i++) {
+            var id = others[i].id || '';
+            if (others[i] !== button && id.indexOf('sg_trigger_') !== 0) {
+                model = others[i];
+                break;
+            }
+        }
+        if (!model) {
+            return;
+        }
+        var classes = model.className.split(/\s+/).filter(function (name) {
+            return name && name !== 'hidden';
+        });
+        button.className = 'sdcl-tool-btn ' + classes.join(' ');
+        var seen = window.getComputedStyle(model);
+        for (var k = 0; k < LOOK.length; k++) {
+            button.style[LOOK[k]] = seen[LOOK[k]];
+        }
+        button.style.display = 'inline-flex';
+        button.style.alignItems = 'center';
+        button.style.justifyContent = 'center';
+    }
+
     // Returns true once the icon stands where it should.
     function placeTool(which) {
         var root = app();
@@ -156,6 +191,7 @@
         } else if (button.parentNode !== row) {
             row.appendChild(button);
         }
+        dress(button, button.parentNode || row);
         return true;
     }
 

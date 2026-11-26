@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api'
+import { boxOf, type Box } from '../geometry'
 import { useStore } from '../store'
 import type { Pin, Region, SceneItem, Shape, Slot } from '../types'
 
@@ -99,12 +100,13 @@ function ShapePath({ shape, color }: { shape: Shape; color: string }) {
 /** The areas drawn by hand, tinted by what they are for; the one being drawn into stands out. */
 function Areas({ slot, drawing }: { slot: Slot; drawing: Shape | null }) {
   const picked = useStore((state) => state.region)
+  const nudge = useStore((state) => state.nudge)
   const rubbing = drawing && drawing.type === 'erase' ? drawing : null
   return (
     <svg viewBox={`0 0 ${slot.width} ${slot.height}`} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
       {slot.regions.map((region) => (
         // What the area covers is its shapes in the order they were drawn: paint, then rub out.
-        <g key={region.id}>
+        <g key={region.id} transform={nudge && nudge.id === region.id ? `translate(${nudge.dx} ${nudge.dy})` : undefined}>
           <mask id={`area-${region.id}`} maskUnits="userSpaceOnUse" x={0} y={0} width={slot.width} height={slot.height}>
             {region.shapes.map((shape, index) => (
               <ShapePath key={index} shape={shape} color={shape.type === 'erase' ? 'black' : 'white'} />
@@ -243,6 +245,60 @@ function FoundBubbles({ slot, scale }: { slot: Slot; scale: number }) {
   )
 }
 
+/** What is shown at once while something is dragged, before the server has drawn it again:
+ * the art without lettering where the thing was, and the piece of the lettered image that
+ * held it, moved, resized and turned the way the drag says. Rough at the edges, and gone
+ * as soon as the real picture arrives. */
+function Ghost({
+  slot,
+  scale,
+  box,
+  dx = 0,
+  dy = 0,
+  factor = 1,
+  turn = 0,
+}: {
+  slot: Slot
+  scale: number
+  box: Box
+  dx?: number
+  dy?: number
+  factor?: number
+  turn?: number
+}) {
+  const left = Math.max(0, box[0]) * scale
+  const top = Math.max(0, box[1]) * scale
+  const width = (Math.min(slot.width, box[2]) - Math.max(0, box[0])) * scale
+  const height = (Math.min(slot.height, box[3]) - Math.max(0, box[1])) * scale
+  if (width <= 0 || height <= 0) return null
+  const piece = (which: 'original' | 'result') => ({
+    left,
+    top,
+    width,
+    height,
+    backgroundImage: `url(${api.imageUrl(slot.session, which, which === 'original' ? 0 : slot.version)})`,
+    backgroundSize: `${slot.width * scale}px ${slot.height * scale}px`,
+    backgroundPosition: `${-left}px ${-top}px`,
+  })
+  return (
+    <>
+      <div className="pointer-events-none absolute" style={piece('original')} />
+      <div
+        className="pointer-events-none absolute"
+        style={{ ...piece('result'), transform: `translate(${dx * scale}px, ${dy * scale}px) rotate(${-turn}deg) scale(${factor})` }}
+      />
+    </>
+  )
+}
+
+/** The box a tilted frame takes up on the image, with a little room around for outlines. */
+function reach(place: Place): Box {
+  const angle = (place.rotation * Math.PI) / 180
+  const wide = (Math.abs(place.width * Math.cos(angle)) + Math.abs(place.height * Math.sin(angle))) * 1.12
+  const tall = (Math.abs(place.width * Math.sin(angle)) + Math.abs(place.height * Math.cos(angle))) * 1.12
+  return [place.cx - wide / 2, place.cy - tall / 2, place.cx + wide / 2, place.cy + tall / 2]
+}
+
 type Gesture = 'move' | 'size' | 'turn'
 
 /** What a drag has changed so far, before the server has drawn it. */
@@ -350,6 +406,8 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
 
   const border = selected ? 'border-cl-accent' : pinned ? 'border-cl-accent/80' : 'border-cl-accent/50 hover:border-cl-accent'
   return (
+    <>
+    {pending && <Ghost slot={slot} scale={scale} box={reach(place)} dx={pending.dx} dy={pending.dy} factor={pending.factor} turn={pending.turn} />}
     <div
       ref={frame}
       className="absolute"
@@ -418,6 +476,118 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
         </>
       )}
     </div>
+    </>
+  )
+}
+
+/** With the arrow: a click on an area picks it and brings up its text; a drag moves the area. */
+function AreaGrip({ region, slot, scale }: { region: Region; slot: Slot; scale: number }) {
+  const start = useRef<{ x: number; y: number; moved: boolean } | null>(null)
+  // What the drag showed, kept until the server has drawn the area where it now is.
+  const [ghost, setGhost] = useState<{ box: Box; dx: number; dy: number } | null>(null)
+  useEffect(() => setGhost(null), [slot.version])
+  const box = boxOf(region.shapes)
+  if (!box) return null
+  const shown = ghost ? ghost.box : box
+  return (
+    <>
+      {ghost && <Ghost slot={slot} scale={scale} box={ghost.box} dx={ghost.dx} dy={ghost.dy} />}
+      <div
+        title="Click to edit this area, drag to move it"
+        className="absolute cursor-move touch-none"
+        style={{
+          left: (shown[0] + (ghost ? ghost.dx : 0)) * scale,
+          top: (shown[1] + (ghost ? ghost.dy : 0)) * scale,
+          width: (shown[2] - shown[0]) * scale,
+          height: (shown[3] - shown[1]) * scale,
+        }}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
+          event.stopPropagation()
+          capture(event)
+          start.current = { x: event.clientX, y: event.clientY, moved: false }
+        }}
+        onPointerMove={(event) => {
+          const from = start.current
+          if (!from) return
+          const dx = (event.clientX - from.x) / scale
+          const dy = (event.clientY - from.y) / scale
+          if (!from.moved && Math.hypot(dx, dy) * scale < 3) return
+          from.moved = true
+          setGhost({ box, dx, dy })
+          useStore.getState().setNudge({ id: region.id, dx, dy })
+        }}
+        onPointerUp={(event) => {
+          const from = start.current
+          start.current = null
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+          if (!from) return
+          if (!from.moved || !ghost) {
+            useStore.getState().pickRegion(region.id)
+            return
+          }
+          useStore.getState().moveRegion(region.id, ghost.dx, ghost.dy)
+        }}
+        onPointerCancel={() => {
+          start.current = null
+          setGhost(null)
+          useStore.getState().setNudge(null)
+        }}
+      />
+    </>
+  )
+}
+
+/** The text of the picked area, typed right where the area is. */
+function AreaField({ region, slot, scale }: { region: Region; slot: Slot; scale: number }) {
+  const { changeRegion, removeRegion, pickRegion, render } = useStore.getState()
+  const box = boxOf(region.shapes)
+  if (!box) return null
+  const wide = 232
+  const tall = region.kind === 'keepout' ? 40 : 96
+  const left = Math.max(0, Math.min(box[0] * scale, slot.width * scale - wide))
+  // Under the area; above it when there is no room under.
+  const under = box[3] * scale + 8
+  const top = under + tall <= slot.height * scale ? under : Math.max(0, box[1] * scale - tall - 8)
+  const done = () => {
+    void render()
+    pickRegion(null)
+  }
+  return (
+    <div
+      className="absolute z-10 flex flex-col gap-1 rounded border border-cl-accent bg-cl-surface p-1.5 shadow-lg"
+      style={{ left, top, width: wide }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {region.kind !== 'keepout' && (
+        <textarea
+          autoFocus
+          value={region.text}
+          rows={2}
+          spellCheck={false}
+          placeholder={region.kind === 'sfx' ? 'One effect: BOOM, THUD x3' : 'Text for this area'}
+          onChange={(event) => changeRegion(region.id, { text: event.target.value }, false)}
+          onBlur={() => void render()}
+          onKeyDown={(event) => {
+            event.stopPropagation()
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) done()
+            if (event.key === 'Escape') done()
+          }}
+          className="w-full resize-none rounded border border-cl-border bg-cl-raised px-2 py-1 text-sm text-cl-text placeholder:text-cl-muted"
+        />
+      )}
+      <div className="flex items-center justify-between gap-2 text-[11px] text-cl-muted">
+        <span>{region.kind === 'keepout' ? 'Kept clear' : 'Ctrl+Enter when done'}</span>
+        <span className="flex items-center gap-2">
+          <button type="button" className="hover:text-cl-danger" onClick={() => removeRegion(region.id)}>
+            Delete
+          </button>
+          <button type="button" className="rounded bg-cl-accent/20 px-2 py-0.5 text-cl-accent-text hover:bg-cl-accent/30" onClick={done}>
+            Done
+          </button>
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -425,12 +595,21 @@ function Picture({ slot }: { slot: Slot }) {
   const showOriginal = useStore((state) => state.showOriginal)
   const showFrames = useStore((state) => state.showFrames)
   const tool = useStore((state) => state.tool)
+  const pickedId = useStore((state) => state.region)
   const [drawing, setDrawing] = useState<Shape | null>(null)
+  const picked = slot.regions.find((region) => region.id === pickedId)
   const { ref, size } = useFit(slot.width, slot.height)
   const which = showOriginal || slot.empty ? 'original' : 'result'
   const scale = size.width / slot.width
   return (
-    <div ref={ref} className="flex min-h-0 flex-1 items-center justify-center" onPointerDown={() => useStore.getState().select(null)}>
+    <div
+      ref={ref}
+      className="flex min-h-0 flex-1 items-center justify-center"
+      onPointerDown={() => {
+        useStore.getState().select(null)
+        if (tool === 'off') useStore.getState().pickRegion(null)
+      }}
+    >
       {size.width > 0 && (
         <div className="relative" style={{ width: size.width, height: size.height }}>
           <img
@@ -444,12 +623,17 @@ function Picture({ slot }: { slot: Slot }) {
               <FoundBubbles slot={slot} scale={scale} />
               <Areas slot={slot} drawing={drawing} />
               {tool === 'off' &&
+                slot.regions.map((region) => <AreaGrip key={region.id} region={region} slot={slot} scale={scale} />)}
+              {tool === 'off' &&
                 slot.items
                   .filter((item) => item.id && item.kind !== 'region' && item.kind !== 'path' && item.region === undefined)
                   .map((item) => <Handle key={item.id} item={item} slot={slot} scale={scale} />)}
             </>
           )}
           {tool !== 'off' && !showOriginal && <DrawLayer slot={slot} scale={scale} onDraw={setDrawing} />}
+          {picked && showFrames && !showOriginal && !drawing && (
+            <AreaField key={picked.id} region={picked} slot={slot} scale={scale} />
+          )}
         </div>
       )}
     </div>

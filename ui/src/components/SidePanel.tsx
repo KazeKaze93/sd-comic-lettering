@@ -53,7 +53,7 @@ const FEW_MARKS = 8
 
 /** The tools as a paint program shows them: an icon each. Paths are drawn on a 16 by 16 grid. */
 const TOOLS: { value: Tool; label: string; icon: ReactNode }[] = [
-  { value: 'off', label: 'Move things (no drawing)', icon: <path d="M4 2l8 6-3.4.8L10.8 13l-1.7.8-2.3-4.2L4 12z" /> },
+  { value: 'off', label: 'Arrow: drag areas, captions and effects; click an area to edit its text', icon: <path d="M4 2l8 6-3.4.8L10.8 13l-1.7.8-2.3-4.2L4 12z" /> },
   {
     value: 'lasso',
     label: 'Outline: draw around an area',
@@ -160,7 +160,7 @@ function AreasPanel() {
           ? 'Pick the outline or the brush and draw on the image. Text or an effect is fitted into the area; a keep-out area is left free. Untick Frames and areas at the top to see the result without the tint.'
           : tool === 'eraser'
             ? 'The eraser rubs out whatever it passes over.'
-            : 'Paint that touches the picked area adds to it. Paint anywhere else starts a new area with its own text.'}
+            : 'Paint an area: a field for its text opens beside it. Done closes it, and the next thing you paint is a new area.'}
       </p>
       {regions.map((region, index) => (
         <div

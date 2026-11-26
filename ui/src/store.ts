@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api, type NewSession } from './api'
+import { boxOf } from './geometry'
 import type { HostImage, LookOf, Options, Pin, Region, Settings, Shape, Slot, Source, Tool } from './types'
 
 const FONT_KEYS = ['font', 'caption_font', 'sfx_font']
@@ -26,6 +27,8 @@ interface State {
   tool: Tool
   brush: number
   region: string | null
+  /** An area being dragged, and how far, in image pixels: its tint follows before anything is redrawn. */
+  nudge: { id: string; dx: number; dy: number } | null
   busy: boolean
   status: string
   warning: boolean
@@ -51,6 +54,9 @@ interface State {
   setTool: (tool: Tool) => void
   setBrush: (brush: number) => void
   pickRegion: (id: string | null) => void
+  setNudge: (nudge: State['nudge']) => void
+  /** Move an area, with everything painted in it, and draw again. */
+  moveRegion: (id: string, dx: number, dy: number) => void
   /** Add what was just drawn to the picked area, or start a new area with it. */
   addShape: (shape: Shape) => void
   /** Change an area; `render` false while its text is being typed. */
@@ -85,21 +91,6 @@ function slotOf(created: NewSession): Slot {
 }
 
 let regionCount = 0
-
-/** The box around what a region or a shape paints: [x0, y0, x1, y1]; null if it paints nothing. */
-function boxOf(shapes: Shape[]): [number, number, number, number] | null {
-  let box: [number, number, number, number] | null = null
-  for (const shape of shapes) {
-    if (shape.type === 'erase') continue
-    const pad = shape.type === 'stroke' ? shape.width / 2 : 0
-    for (const [x, y] of shape.points) {
-      box = box
-        ? [Math.min(box[0], x - pad), Math.min(box[1], y - pad), Math.max(box[2], x + pad), Math.max(box[3], y + pad)]
-        : [x - pad, y - pad, x + pad, y + pad]
-    }
-  }
-  return box
-}
 
 /** Is this one sweep of the brush along a line, not a scribble that fills a patch? A sweep is
  * not much longer than the box around it is across; a scribble goes back and forth inside it. */
@@ -152,6 +143,7 @@ export const useStore = create<State>((set, get) => {
     tool: 'off',
     brush: 0.12,
     region: null,
+    nudge: null,
     busy: false,
     status: '',
     warning: false,
@@ -289,6 +281,17 @@ export const useStore = create<State>((set, get) => {
     setTool: (tool) => set({ tool, selected: null }),
     setBrush: (brush) => set({ brush }),
     pickRegion: (id) => set({ region: id }),
+    setNudge: (nudge) => set({ nudge }),
+
+    moveRegion: (id, dx, dy) => {
+      const slot = get().slots[get().source]
+      const region = slot?.regions.find((candidate) => candidate.id === id)
+      if (!region) return
+      const moved = (points: [number, number][]) =>
+        points.map(([x, y]) => [Math.round((x + dx) * 10) / 10, Math.round((y + dy) * 10) / 10] as [number, number])
+      set({ nudge: null })
+      get().changeRegion(id, { shapes: region.shapes.map((shape) => ({ ...shape, points: moved(shape.points) })) })
+    },
 
     addShape: (shape) => {
       const state = get()
