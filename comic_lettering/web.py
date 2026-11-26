@@ -293,8 +293,12 @@ def ui_html():
     return re.sub(r'(?P<attr>\b(?:src|href))=(?P<q>["\'])(?P<path>\./[^"\']+)(?P=q)', swap, html)
 
 
-def register(app, save_folder=None):
-    """Add the routes to the host's FastAPI app. save_folder() names the folder for saved images."""
+def register(app, saver=None):
+    """Add the routes to the host's FastAPI app.
+
+    saver(image, parameters, tab) saves an image the way the host saves its own and returns
+    the file's path. Without one, images go into a "saved" folder beside this package.
+    """
     from fastapi import Request
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
     from starlette.concurrency import run_in_threadpool
@@ -396,9 +400,13 @@ def register(app, save_folder=None):
         session = get_session(str(body.get("session") or ""))
         if session is None:
             return fail("The image is gone from memory. Load it again.", 404)
-        folder = save_folder() if save_folder else os.path.join(BASE_DIR, "saved")
+        tab = "img2img" if body.get("tab") == "img2img" else "txt2img"
         try:
-            path = await run_in_threadpool(save_session, session, folder)
-        except (IOError, OSError) as error:
+            if saver:
+                image = session["result"] or session["image"]
+                path = await run_in_threadpool(saver, image, session["parameters"], tab)
+            else:
+                path = await run_in_threadpool(save_session, session, os.path.join(BASE_DIR, "saved"))
+        except Exception as error:  # the host's own saving can fail in its own ways: say so on the page
             return fail("Could not save: %s" % error, 500)
-        return JSONResponse({"path": path})
+        return JSONResponse({"path": os.path.normpath(str(path))})

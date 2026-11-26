@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api'
-import { boxOf, type Box } from '../geometry'
+import { boxOf, bubbleShapes, type Box } from '../geometry'
 import { useStore } from '../store'
 import type { Pin, Region, SceneItem, Shape, Slot } from '../types'
 
@@ -171,12 +171,23 @@ function DrawLayer({ slot, scale, onDraw }: { slot: Slot; scale: number; onDraw:
     const y = Math.min(slot.height, Math.max(0, (event.clientY - rect.top) / scale))
     return [Math.round(x * 10) / 10, Math.round(y * 10) / 10]
   }
+  const stamp = useStore((state) => state.stamp)
+  /** The box a bubble is dragged out to; a click alone gives one of a handy size around the point. */
+  const boxOfDrag = (list: [number, number][]): Box => {
+    const [ax, ay] = list[0]
+    const [bx, by] = list[list.length - 1]
+    if (Math.hypot(bx - ax, by - ay) * scale < 12) {
+      const half = [0.13 * slot.width, 0.09 * slot.height]
+      return [ax - half[0], ay - half[1], ax + half[0], ay + half[1]]
+    }
+    return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)]
+  }
   const shapeOf = (list: [number, number][]): Shape =>
     tool === 'brush'
       ? { type: 'stroke', points: list, width }
       : tool === 'eraser'
         ? { type: 'erase', points: list, width }
-        : { type: 'polygon', points: list }
+        : bubbleShapes({ shape: stamp.shape, tail: 'none', box: boxOfDrag(list) })[0]
 
   return (
     <div
@@ -198,7 +209,8 @@ function DrawLayer({ slot, scale, onDraw }: { slot: Slot; scale: number; onDraw:
         const last = list[list.length - 1]
         // A point every few screen pixels is plenty.
         if (Math.hypot(next[0] - last[0], next[1] - last[1]) * scale < 3) return
-        list.push(next)
+        if (tool === 'bubble') list.splice(1, list.length - 1, next)  // a bubble is its two corners
+        else list.push(next)
         onDraw(shapeOf([...list]))
       }}
       onPointerUp={(event) => {
@@ -207,8 +219,10 @@ function DrawLayer({ slot, scale, onDraw }: { slot: Slot; scale: number; onDraw:
         onDraw(null)
         if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
         if (!list) return
-        // An outline needs to enclose something; a dab of the brush is enough.
-        if (tool === 'lasso' && list.length < 6) return
+        if (tool === 'bubble') {
+          useStore.getState().addBubble(boxOfDrag(list))
+          return
+        }
         useStore.getState().addShape(shapeOf(list))
       }}
       onPointerCancel={() => {

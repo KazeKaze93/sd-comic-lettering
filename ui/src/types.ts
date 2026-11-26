@@ -63,9 +63,22 @@ export interface Region {
   follow?: boolean
   /** Along the stroke the other way round. */
   flip?: boolean
+  /** Set on a bubble made from a template, so its shape and tail can still be changed. */
+  template?: BubbleTemplate
 }
 
-export type Tool = 'off' | 'lasso' | 'brush' | 'eraser'
+export type Tool = 'off' | 'bubble' | 'brush' | 'eraser'
+
+export type BubbleShape = 'oval' | 'box' | 'cloud' | 'burst' | 'thought'
+export type BubbleTail = 'none' | 'down-left' | 'down' | 'down-right' | 'left' | 'right' | 'up-left' | 'up' | 'up-right'
+
+/** A bubble put on the image from a template: its outline is worked out from these. */
+export interface BubbleTemplate {
+  shape: BubbleShape
+  tail: BubbleTail
+  /** Where it stands, in image pixels: x0, y0, x1, y1. */
+  box: [number, number, number, number]
+}
 
 /** What was set by hand for one item; the server decides whatever is left out. */
 export interface Pin {

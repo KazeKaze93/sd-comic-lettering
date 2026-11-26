@@ -33,7 +33,7 @@ There are two ways in, in txt2img and in img2img alike: the speech-bubble icon i
 
 1. Generate an image and press `Comic Lettering`. The editor takes the image the gallery shows, as it was generated.
 2. Type the text. Everything applies by itself: a list or a checkbox when it changes, a slider when it is released, a text field when you leave it (or on Ctrl+Enter).
-3. `To gallery` shows the result in the gallery of the tab you came from; `Save` writes a PNG into the host's folder for saved images.
+3. `To gallery` shows the result in the gallery of the tab you came from; `Save` saves the way the host saves its own images of that tab: same folder, file name pattern, numbering, format and subfolders, with `-lettered` at the end of the name and the generation parameters kept.
 
 `Own image` at the top letters any image from disk instead: drop it onto the editor or click to choose it. Nothing has to be generated for that.
 
@@ -42,10 +42,9 @@ There are two ways in, in txt2img and in img2img alike: the speech-bubble icon i
 | `From generation` / `Own image` | Which image is lettered: the one in the gallery of the tab you came from, or a file of yours. |
 | `Frames and areas` | Untick it to see the image as it will be saved, without any of this. Outlines over the image: every bubble found, numbered in reading order (dashed if left empty), and everything that was drawn. The caption, its drawn bubble and the sound effects can be moved by their frames, see below. |
 | `Original` | Shows the image without the lettering. The texts stay in their fields. |
-| `Save` | Writes the lettered PNG into the host's folder for saved images; the status line names the file. |
+| `Save` | Saves the lettered image the way the host saves a generation of the tab the editor was opened from; the status line names the file. |
 | `To gallery` | Puts the lettered image into that gallery and closes the editor. |
 | `Clear` next to a field | Empties that field. |
-| `Numbers` next to Bubbles | Draws each bubble's number instead of the text, to see what was found and in what order. |
 | `Move` next to Sound effects | Arranges the sound effects differently. |
 | The mark buttons | Insert a mark at the cursor of the text field you used last. `All 37 marks` shows the rest: hearts (full, hollow, two, broken), a kiss, stars and sparkles, a burst, anger, a bolt, a flame, a drop, splashes, steam, a puff, blush lines, a wave, a spiral, zzz, notes, a flower, moon, sun, ♂ ♀, a cross, a ring, arrows and card suits. They are drawn as shapes in the text's colors, so they work with every font. |
 | `Look` | Chooses whose lists are shown: bubbles, caption or sound effects. |
@@ -54,7 +53,9 @@ There are two ways in, in txt2img and in img2img alike: the speech-bubble icon i
 
 **Placing by hand.** Drag the frame of the caption, of its drawn bubble or of a sound effect to move it. Click a frame to pick it: the corner square resizes it, the round knob on a stem above it, marked with a turning arrow, turns it (not the drawn bubble). The arrow keys nudge the picked item, by ten pixels with Shift. What was placed by hand stays where it is when the texts or the look change, and the things placed automatically keep off it. `Place automatically` under a picked frame (or Delete) hands that item back to the script; `Place all automatically` at the top does it for all of them. Texts inside the bubbles found in the art are always fitted by the script.
 
-**Areas drawn by hand.** Under `Areas drawn by hand` there are four tools, shown as icons: the arrow (no drawing: drag areas, captions and effects), the outline (draw a closed outline; it is filled), the brush (paint; the slider sets its width and a ring shows it on the image) and the eraser (rubs out whatever it passes over, in every area). Draw on the image. Each area gets a card in the panel:
+**Areas drawn by hand.** Under `Areas drawn by hand` there are four tools, shown as icons: the arrow (no drawing: drag areas, captions and effects), the bubble (put a ready-made bubble on the image), the brush (paint; the slider sets its width and a ring shows it on the image) and the eraser (rubs out whatever it passes over, in every area). Draw on the image.
+
+The bubble tool has five templates: oval, box, cloud, burst and thought, each with a tail in one of eight directions or none, light or dark. Choose one and drag on the image where the bubble goes; a click alone puts down one of a handy size. The bubble is an area like any other: its text is fitted inside, it moves with the arrow, and its card can still change its shape and tail. Each area gets a card in the panel:
 
 | Area | What happens in it |
 |---|---|
@@ -162,7 +163,7 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 ## Limits
 
 - A bubble is detected as a flat white, gray or lightly tinted (cream, beige) fill (any brightness above `white_threshold`) enclosed by a dark outline, or a flat near-black fill enclosed by a bright outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, translucent or gradient bubbles and rectangular caption boxes are not found. Dark bubbles are calibrated on a single example: expect misses.
-- Anything else that looks the same gets lettered too, such as a blank sheet of paper on a wall. Use `Bubble numbers` to see what was found and an empty line to skip it.
+- Anything else that looks the same gets lettered too, such as a blank sheet of paper on a wall. The frames on the image show what was found and number it; use an empty line to skip a number.
 - A narrow bubble cannot hold a long word at a readable size. Such text goes to the caption.
 - When a character fills most of the frame there may be no free place: a drawn bubble is then tried tall and narrow and shrunk, down to half, and put where it covers the least, keeping off heads and bubbles first. The head is taken to be the top quarter of a character, so this fails for a character lying down or upside down.
 - Marks around a text are left out where they would land on a character or be cut by the image edge. An effect made of symbols alone gets no marks. A caption with a fixed placement (`top`, a corner) avoids nothing; a bubble drawn for it there is made smaller (down to 0.6 of the size) until it is clear of bubbles and characters, or drawn at 0.72 of the size if it lands on them anyway.

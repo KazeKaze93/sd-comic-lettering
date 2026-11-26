@@ -22,14 +22,22 @@ for _name in [n for n in sys.modules if n == "comic_lettering" or n.startswith("
 from comic_lettering import draw, web  # noqa: E402
 
 
-def save_folder():
-    """Where the editor's Save button writes: the host's folder for saved images."""
-    folder = getattr(shared.opts, "outdir_save", "") or os.path.join("outputs", "comic-lettering")
-    return os.path.abspath(folder)
+def save_like_host(image, parameters, tab):
+    """Save the editor's image the way the host saves a generation of that tab: into the
+    same folder, with the host's file name pattern, numbering, format and subfolders, and
+    with the generation parameters of the source image kept. Returns the file's path."""
+    from modules import images
+
+    opts = shared.opts
+    folder = getattr(opts, "outdir_samples", "") or getattr(opts, "outdir_%s_samples" % tab, "")         or os.path.join("outputs", "%s-images" % tab)
+    saved = images.save_image(image, folder, "", info=parameters, extension=getattr(opts, "samples_format", "png"),
+                              suffix="-lettered")
+    path = saved[0] if isinstance(saved, (tuple, list)) else saved
+    return os.path.abspath(path or folder)
 
 
 def register(_demo, app):
-    web.register(app, save_folder)
+    web.register(app, save_like_host)
 
 
 script_callbacks.on_app_started(register)

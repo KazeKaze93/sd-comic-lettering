@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { LookOf, Region, RegionKind, Tool } from '../types'
+import { BUBBLE_SHAPES, BUBBLE_TAILS } from '../geometry'
+import type { BubbleShape, BubbleTail, LookOf, Region, RegionKind, Tool } from '../types'
 import { Button, Label, Segmented, Select, Slider, TextInput, Toggle } from './controls'
 
 type FieldName = 'text' | 'caption' | 'sfx'
@@ -55,14 +56,9 @@ const FEW_MARKS = 8
 const TOOLS: { value: Tool; label: string; icon: ReactNode }[] = [
   { value: 'off', label: 'Arrow: drag areas, captions and effects; click an area to edit its text', icon: <path d="M4 2l8 6-3.4.8L10.8 13l-1.7.8-2.3-4.2L4 12z" /> },
   {
-    value: 'lasso',
-    label: 'Outline: draw around an area',
-    icon: (
-      <>
-        <ellipse cx="8" cy="6.5" rx="6" ry="4.5" strokeDasharray="2.6 1.8" />
-        <path d="M5.2 10.5c-1.2 1.6-.2 3.4 1.6 3.4" />
-      </>
-    ),
+    value: 'bubble',
+    label: 'Bubble: put a ready-made bubble on the image',
+    icon: <path d="M8 2.2c3.4 0 6 2.1 6 4.7s-2.6 4.700-6 4.700c-.6 0-1.200-.1-1.800-.2L3.300 13.800l.8-2.900C2.800 10 2 8.500 2 6.900c0-2.600 2.600-4.700 6-4.700z" />,
   },
   {
     value: 'brush',
@@ -110,7 +106,9 @@ function AreasPanel() {
   const brush = useStore((state) => state.brush)
   const picked = useStore((state) => state.region)
   const regions = useStore((state) => state.slots[state.source]?.regions)
-  const { setTool, setBrush, pickRegion, changeRegion, removeRegion, undoShape, render } = useStore.getState()
+  const stamp = useStore((state) => state.stamp)
+  const { setTool, setBrush, pickRegion, changeRegion, removeRegion, undoShape, render, setStamp, reshape } = useStore.getState()
+  const shapes = BUBBLE_SHAPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }))
   if (!regions) return null
   return (
     <Section title="Areas drawn by hand">
@@ -144,6 +142,15 @@ function AreasPanel() {
           New area
         </Button>
       </div>
+      {tool === 'bubble' && (
+        <>
+          <Segmented<BubbleShape> value={stamp.shape} options={shapes} onChange={(shape) => setStamp({ shape })} />
+          <div className="grid grid-cols-2 gap-2">
+            <Select label="Tail" value={stamp.tail} options={BUBBLE_TAILS} onChange={(tail) => setStamp({ tail: tail as BubbleTail })} />
+            <Select label="Bubble color" value={stamp.fill} options={['light', 'dark']} onChange={(fill) => setStamp({ fill: fill as 'light' | 'dark' })} />
+          </div>
+        </>
+      )}
       {(tool === 'brush' || tool === 'eraser') && (
         <Slider
           label={tool === 'eraser' ? 'Eraser width, % of the image' : 'Brush width, % of the image'}
@@ -157,10 +164,12 @@ function AreasPanel() {
       )}
       <p className="text-[11px] leading-snug text-cl-muted">
         {tool === 'off'
-          ? 'Pick the outline or the brush and draw on the image. Text or an effect is fitted into the area; a keep-out area is left free. Once an area has its text and is closed with Done, its tint goes; point at it with the arrow to see it again.'
+          ? 'Pick the bubble or the brush. The bubble tool puts a ready-made bubble where you drag; the brush paints any shape. Text or an effect is fitted into the area; a keep-out area is left free. Once an area has its text and is closed with Done, its tint goes; point at it with the arrow to see it again.'
           : tool === 'eraser'
             ? 'The eraser rubs out whatever it passes over.'
-            : 'Paint an area: a field for its text opens beside it. Done closes it, and the next thing you paint is a new area.'}
+            : tool === 'bubble'
+              ? 'Choose a shape, then drag on the image where the bubble goes (or just click). A field for its text opens beside it.'
+              : 'Paint an area: a field for its text opens beside it. Done closes it, and the next thing you paint is a new area.'}
       </p>
       {regions.map((region, index) => (
         <div
@@ -180,6 +189,12 @@ function AreasPanel() {
             </span>
           </div>
           <Segmented value={region.kind} options={KINDS} onChange={(kind) => changeRegion(region.id, { kind })} />
+          {region.template && (
+            <>
+              <Segmented<BubbleShape> value={region.template.shape} options={shapes} onChange={(shape) => reshape(region.id, { shape })} />
+              <Select label="Tail" value={region.template.tail} options={BUBBLE_TAILS} onChange={(tail) => reshape(region.id, { tail: tail as BubbleTail })} />
+            </>
+          )}
           {region.kind === 'text' && (
             <Segmented value={region.fill} options={FILLS} onChange={(fill) => changeRegion(region.id, { fill })} />
           )}
@@ -309,11 +324,10 @@ export function SidePanel() {
     caption: useStore((state) => state.caption),
     sfx: useStore((state) => state.sfx),
   }
-  const numbers = useStore((state) => state.numbers)
   const lookOf = useStore((state) => state.lookOf)
   const auto = useStore((state) => state.auto)
   const embedded = useStore((state) => state.embedded)
-  const { setField, setNumbers, setSetting, setLookOf, setAuto, moveEffects, resetLook, render } = useStore.getState()
+  const { setField, setSetting, setLookOf, setAuto, moveEffects, resetLook, render } = useStore.getState()
 
   const areas = useRef<Record<FieldName, HTMLTextAreaElement | null>>({ text: null, caption: null, sfx: null })
   const lastField = useRef<FieldName>('sfx')
@@ -417,12 +431,9 @@ export function SidePanel() {
       {area(
         'text',
         'Bubbles',
-        'One line per bubble; an empty line skips one.',
+        'One line per bubble, in the order of the numbers on the image; an empty line skips one.',
         3,
-        <>
-          <Toggle checked={numbers} onChange={setNumbers} label="Numbers" />
-          {clear('text')}
-        </>,
+        clear('text'),
       )}
       {area('caption', 'Caption', 'Text on the art, outside the bubbles.', 2, clear('caption'))}
       {area(

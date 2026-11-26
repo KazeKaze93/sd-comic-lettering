@@ -57,7 +57,7 @@ export const api = {
 
   saveSettings: (settings: Settings, auto: Options['auto']) => post<{ ok: boolean }>('/settings', { settings, auto }),
 
-  save: (session: string) => post<{ path: string }>('/save', { session }),
+  save: (session: string, tab: string) => post<{ path: string }>('/save', { session, tab }),
 
   imageUrl: (session: string, which: 'original' | 'result', version: number) =>
     `${BASE}/image/${session}/${which}?v=${version}`,

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { api, type NewSession } from './api'
-import { boxOf } from './geometry'
-import type { HostImage, LookOf, Options, Pin, Region, Settings, Shape, Slot, Source, Tool } from './types'
+import { boxOf, bubbleShapes } from './geometry'
+import type { BubbleTemplate, HostImage, LookOf, Options, Pin, Region, Settings, Shape, Slot, Source, Tool } from './types'
 
 const FONT_KEYS = ['font', 'caption_font', 'sfx_font']
 
@@ -27,6 +27,8 @@ interface State {
   tool: Tool
   brush: number
   region: string | null
+  /** The template the bubble tool puts down next, and how its bubble is painted. */
+  stamp: { shape: BubbleTemplate['shape']; tail: BubbleTemplate['tail']; fill: 'light' | 'dark' }
   /** An area being dragged, and how far, in image pixels: its tint follows before anything is redrawn. */
   nudge: { id: string; dx: number; dy: number } | null
   /** The area under the pointer, with the arrow: its tint shows while the pointer is on it. */
@@ -58,6 +60,11 @@ interface State {
   pickRegion: (id: string | null) => void
   setNudge: (nudge: State['nudge']) => void
   setHover: (id: string | null) => void
+  setStamp: (change: Partial<State['stamp']>) => void
+  /** Put a bubble from the template into a box on the image and open the field for its text. */
+  addBubble: (box: BubbleTemplate['box']) => void
+  /** Give a template bubble another shape or tail. */
+  reshape: (id: string, change: Partial<Pick<BubbleTemplate, 'shape' | 'tail'>>) => void
   /** Move an area, with everything painted in it, and draw again. */
   moveRegion: (id: string, dx: number, dy: number) => void
   /** Add what was just drawn to the picked area, or start a new area with it. */
@@ -148,6 +155,7 @@ export const useStore = create<State>((set, get) => {
     region: null,
     nudge: null,
     hover: null,
+    stamp: { shape: 'oval', tail: 'down-left', fill: 'light' },
     busy: false,
     status: '',
     warning: false,
@@ -287,6 +295,27 @@ export const useStore = create<State>((set, get) => {
     pickRegion: (id) => set({ region: id }),
     setNudge: (nudge) => set({ nudge }),
     setHover: (id) => set({ hover: id }),
+    setStamp: (change) => set((state) => ({ stamp: { ...state.stamp, ...change } })),
+
+    addBubble: (box) => {
+      const state = get()
+      const slot = state.slots[state.source]
+      if (!slot) return
+      regionCount += 1
+      const id = `a${Date.now().toString(36)}${regionCount}`
+      const template: BubbleTemplate = { shape: state.stamp.shape, tail: state.stamp.tail, box }
+      const region: Region = { id, kind: 'text', shapes: bubbleShapes(template), text: '', fill: state.stamp.fill, template }
+      set({ region: id, slots: { ...state.slots, [state.source]: { ...slot, regions: [...slot.regions, region] } } })
+      void get().render()
+    },
+
+    reshape: (id, change) => {
+      const slot = get().slots[get().source]
+      const region = slot?.regions.find((candidate) => candidate.id === id)
+      if (!region || !region.template) return
+      const template = { ...region.template, ...change }
+      get().changeRegion(id, { template, shapes: bubbleShapes(template) })
+    },
 
     moveRegion: (id, dx, dy) => {
       const slot = get().slots[get().source]
@@ -295,7 +324,11 @@ export const useStore = create<State>((set, get) => {
       const moved = (points: [number, number][]) =>
         points.map(([x, y]) => [Math.round((x + dx) * 10) / 10, Math.round((y + dy) * 10) / 10] as [number, number])
       set({ nudge: null })
-      get().changeRegion(id, { shapes: region.shapes.map((shape) => ({ ...shape, points: moved(shape.points) })) })
+      const box = region.template?.box
+      get().changeRegion(id, {
+        shapes: region.shapes.map((shape) => ({ ...shape, points: moved(shape.points) })),
+        template: region.template && box ? { ...region.template, box: [box[0] + dx, box[1] + dy, box[2] + dx, box[3] + dy] } : undefined,
+      })
     },
 
     addShape: (shape) => {
@@ -423,7 +456,8 @@ export const useStore = create<State>((set, get) => {
       const slot = get().slots[get().source]
       if (!slot) return
       try {
-        const saved = await api.save(slot.session)
+        // Saved the way the host saves a generation of the tab the editor was opened from.
+        const saved = await api.save(slot.session, get().hostImage?.tab ?? 'txt2img')
         set({ status: `Saved to ${saved.path}`, warning: false, error: null })
       } catch (error) {
         fail(error)

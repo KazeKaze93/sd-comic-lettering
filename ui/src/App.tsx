@@ -37,7 +37,7 @@ function TopBar() {
       <Button active={showOriginal} disabled={!slot} onClick={() => setShowOriginal(!showOriginal)}>
         Original
       </Button>
-      <Button disabled={!slot} onClick={() => void save()} title="Write a PNG into the host's folder for saved images">
+      <Button disabled={!slot} onClick={() => void save()} title="Save the way the host saves its own images: same folder, file names and format">
         Save
       </Button>
       {embedded && (
