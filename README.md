@@ -29,27 +29,32 @@ Restart the host afterwards.
 
 ### A1111 / Forge / reForge
 
-The `Comic Lettering` panel sits under the result gallery, in txt2img and img2img. It starts collapsed.
+The `Comic Lettering` button sits under the txt2img result gallery. It opens the editor over the page; `Close` or Esc brings the page back.
 
-1. Generate an image.
-2. Type the text and press **Apply**. The images of the last generation are lettered again from their clean copies, so nothing is generated twice.
-3. Save the result with the gallery's own buttons, or right-click the image.
+1. Generate an image and press `Comic Lettering`. The editor takes the image the gallery shows, as it was generated.
+2. Type the text. Everything applies by itself: a list or a checkbox when it changes, a slider when it is released, a text field when you leave it (or on Ctrl+Enter).
+3. `To gallery` shows the result in the txt2img gallery; `Save` writes a PNG into the host's folder for saved images.
 
-After the first Apply everything applies by itself: a list or a checkbox when it changes, a slider when it is released, a text field when you leave it. The status line at the top of the panel says how many bubbles were found and filled.
+`Own image` at the top letters any image from disk instead: drop it onto the editor or click to choose it. Nothing has to be generated for that.
 
 | Control | What it does |
 |---|---|
-| `Apply` | Letters the images of the last generation. |
-| `Show original` | Shows those images as they were generated. The texts stay in their fields, and Apply puts them back. |
-| `Clear` under a field | Empties that field. |
-| `Show numbers` under Bubbles | Draws each bubble's number instead of the text, to see what was found and in what order. |
-| `Move` under Sound effects | Arranges the sound effects differently. |
+| `From generation` / `Own image` | Which image is lettered: the one in the txt2img gallery, or a file of yours. |
+| `Frames` | Outlines over the image: every bubble found, numbered in reading order (dashed if left empty), and everything that was drawn. |
+| `Original` | Shows the image without the lettering. The texts stay in their fields. |
+| `Save` | Writes the lettered PNG into the host's folder for saved images; the status line names the file. |
+| `To gallery` | Puts the lettered image into the txt2img gallery and closes the editor. |
+| `Clear` next to a field | Empties that field. |
+| `Numbers` next to Bubbles | Draws each bubble's number instead of the text, to see what was found and in what order. |
+| `Move` next to Sound effects | Arranges the sound effects differently. |
 | `♥` `★` `✦` `♪` `💢` `💧` | Inserts that mark at the cursor of the text field you used last. |
-| `Look of` | Chooses whose lists are shown below: bubbles, caption or sound effects. |
-| `Letter every new image while it is generated` | Letters images during generation instead of afterwards. |
-| `Fine tuning` | Sizes, outlines, the custom mood and the bubble detector, grouped by kind of text. Its last row resets the look; `Keep the fonts` leaves the three fonts alone. |
+| `Look` | Chooses whose lists are shown: bubbles, caption or sound effects. |
+| `Fine tuning` | Sizes, outlines, the custom mood and the bubble detector, grouped by kind of text. `Reset the look` puts everything back; `Keep the fonts` leaves the three fonts alone. |
+| `Letter every new image while it is generated` | Letters images during generation, with the three texts and the look as they are in the editor. |
 
-The lists and everything under `Fine tuning` are remembered in `user_settings.json`; the texts and the checkboxes next to them are not.
+The status line under the image says how many bubbles were found and filled. The look is remembered in `user_settings.json`. The texts are remembered only while `Letter every new image` is on, since the host then needs them.
+
+The editor is a React page in `ui/`; its build in `ui/dist` is part of the repo, so Node is not needed to use the extension. To change the page: `npm install` and `npm run build` in `ui/`.
 
 ### Keeping off the characters
 
