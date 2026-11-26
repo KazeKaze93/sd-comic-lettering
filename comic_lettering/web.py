@@ -24,7 +24,16 @@ EXTENSION = os.path.basename(BASE_DIR)
 SAME_FONT = "same as bubbles"
 SFX_FONT = "Bangers"
 # Marks that are drawn as shapes; the page offers buttons for them, since a keyboard cannot type them.
-SYMBOLS = [u"♥", u"★", u"✦", u"♪", u"\U0001F4A2", u"\U0001F4A7"]
+SYMBOLS = [
+    u"♥", u"♡", u"💕", u"💔", u"💋",
+    u"★", u"☆", u"✦", u"✨", u"💥",
+    u"💢", u"⚡", u"🔥",
+    u"💧", u"💦", u"♨", u"💨",
+    u"〃", u"〰", u"🌀", u"💤",
+    u"♪", u"♫", u"✿", u"🌙", u"☀",
+    u"♂", u"♀", u"✖", u"○",
+    u"→", u"←", u"↑", u"↓", u"♦", u"♠", u"♣",
+]
 
 # The look, remembered between sessions.
 DEFAULTS = {

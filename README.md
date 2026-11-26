@@ -47,7 +47,7 @@ The `Comic Lettering` button sits under the txt2img result gallery. It opens the
 | `Clear` next to a field | Empties that field. |
 | `Numbers` next to Bubbles | Draws each bubble's number instead of the text, to see what was found and in what order. |
 | `Move` next to Sound effects | Arranges the sound effects differently. |
-| `♥` `★` `✦` `♪` `💢` `💧` | Inserts that mark at the cursor of the text field you used last. |
+| The mark buttons | Insert a mark at the cursor of the text field you used last. `All 37 marks` shows the rest: hearts (full, hollow, two, broken), a kiss, stars and sparkles, a burst, anger, a bolt, a flame, a drop, splashes, steam, a puff, blush lines, a wave, a spiral, zzz, notes, a flower, moon, sun, ♂ ♀, a cross, a ring, arrows and card suits. They are drawn as shapes in the text's colors, so they work with every font. |
 | `Look` | Chooses whose lists are shown: bubbles, caption or sound effects. |
 | `Fine tuning` | Sizes, outlines, the custom mood and the bubble detector, grouped by kind of text. `Reset the look` puts everything back; `Keep the fonts` leaves the three fonts alone. |
 | `Letter every new image while it is generated` | Letters images during generation, with the three texts and the look as they are in the editor. |
@@ -105,7 +105,7 @@ Three fields:
 In any field:
 
 - `*word*` makes a word bigger. In a bubble too tight for the bigger word the text is written without the emphasis instead of being moved to the caption. If it still does not fit, its longest words are broken with a hyphen (`UNBE-` / `LIEVABLE`).
-- `♥` (or `<3`), `★`, `✦`, `♪`, `💢`, `💧` are drawn as shapes: heart, star, sparkle, note, anger mark, drop.
+- Marks are drawn as shapes, since comic fonts do not have them: `♥` (or `<3`) `♡` `💕` `💔` `💋` `★` `☆` `✦` `✨` `💥` `💢` `⚡` `🔥` `💧` `💦` `♨` `💨` `〃` `〰` `🌀` `💤` `♪` `♫` `✿` `🌙` `☀` `♂` `♀` `✖` `○` `→` `←` `↑` `↓` `♦` `♠` `♣`. The editor has a button for each. `♡`, `☆`, `✨`, `♫` and `💦` used to be drawn like their plain versions and now have shapes of their own.
 - A word may break after a hyphen (`H-m-m`) when that lets the text be bigger.
 
 A line goes into a bubble only if it fits at a readable size (`bubble_min_size`) in at most eight lines. A bubble too small for it is passed over, and lines left without a bubble are added to the caption; a line that fits no bubble uses up none, so the next line still gets the first free one. Untick `Text too long for a bubble goes to the caption` under `Fine tuning` to always write into the bubbles, however small, and drop the lines left over.

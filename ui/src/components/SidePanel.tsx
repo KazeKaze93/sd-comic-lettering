@@ -48,6 +48,9 @@ const CUSTOM_MOOD: SliderSpec[] = [
   { key: 'seed', label: 'Wobble pattern number', min: 0, max: 999, step: 1 },
 ]
 
+/** How many mark buttons show before "All marks" is pressed. */
+const FEW_MARKS = 8
+
 const TOOLS: { value: Tool; label: string }[] = [
   { value: 'off', label: 'Off' },
   { value: 'lasso', label: 'Outline' },
@@ -257,6 +260,7 @@ export function SidePanel() {
   const areas = useRef<Record<FieldName, HTMLTextAreaElement | null>>({ text: null, caption: null, sfx: null })
   const lastField = useRef<FieldName>('sfx')
   const [fine, setFine] = useState(false)
+  const [allMarks, setAllMarks] = useState(false)
   const [keepFonts, setKeepFonts] = useState(true)
 
   // Every font of the lists, so an entry can be drawn in its own font.
@@ -376,12 +380,19 @@ export function SidePanel() {
         </>,
       )}
       <div className="flex flex-wrap items-center gap-1">
-        {options.symbols.map((mark) => (
+        {(allMarks ? options.symbols : options.symbols.slice(0, FEW_MARKS)).map((mark) => (
           <Button key={mark} onClick={() => insert(mark)} title="Insert at the cursor">
             {mark}
           </Button>
         ))}
-        <span className="ml-1 text-[11px] text-cl-muted">*word* makes a word bigger</span>
+        {options.symbols.length > FEW_MARKS && (
+          <Button variant="quiet" onClick={() => setAllMarks(!allMarks)}>
+            {allMarks ? 'Fewer' : `All ${options.symbols.length} marks`}
+          </Button>
+        )}
+        <span className="basis-full text-[11px] text-cl-muted">
+          Marks are drawn as shapes in the text's colors. *word* makes a word bigger.
+        </span>
       </div>
 
       <AreasPanel />

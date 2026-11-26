@@ -15,18 +15,28 @@ EMPHASIS_SCALE = 1.3
 
 # Characters drawn as shapes, because comic fonts do not have them.
 SYMBOLS = {
-    u"♥": "heart", u"❤": "heart", u"♡": "heart",
-    u"★": "star", u"☆": "star",
-    u"✦": "spark", u"✨": "spark",
-    u"♪": "note", u"♫": "note",
-    u"\U0001F4A2": "anger",
-    u"\U0001F4A6": "drop", u"\U0001F4A7": "drop",
+    u"\u2665": "heart", u"\u2764": "heart", u"\u2661": "heart_line",
+    u"\U0001F495": "hearts", u"\U0001F494": "heart_broken",
+    u"\u2605": "star", u"\u2606": "star_line",
+    u"\u2726": "spark", u"\u2728": "sparkles", u"\U0001F4A5": "burst",
+    u"\u266a": "note", u"\u266b": "notes",
+    u"\U0001F4A2": "anger", u"\u26a1": "bolt", u"\U0001F525": "flame",
+    u"\U0001F4A7": "drop", u"\U0001F4A6": "splash", u"\u2668": "steam", u"\U0001F4A8": "puff",
+    u"\U0001F4A4": "zzz", u"\U0001F300": "spiral", u"\U0001F4AB": "spiral",
+    u"\u3030": "wave", u"\u3003": "blush", u"\U0001F48B": "lips",
+    u"\u2642": "male", u"\u2640": "female",
+    u"\u273f": "flower", u"\U0001F319": "moon", u"\u2600": "sun",
+    u"\u2716": "cross", u"\u25cb": "ring",
+    u"\u2192": "arrow_right", u"\u2190": "arrow_left", u"\u2191": "arrow_up", u"\u2193": "arrow_down",
+    u"\u2666": "diamond", u"\u2660": "spade", u"\u2663": "club",
 }
 SYMBOL_WIDTH = 0.95  # of the font size
 
 # What can be scattered around a caption or a sound effect.
 EXTRAS = {"none": None, "hearts": "heart", "sparkles": "spark", "stars": "star",
-          "notes": "note", "sweat": "drop", "anger": "anger", "motion lines": "motion"}
+          "notes": "note", "sweat": "drop", "anger": "anger", "motion lines": "motion",
+          "splashes": "splash", "steam": "steam", "sleep": "zzz", "bolts": "bolt", "flames": "flame",
+          "flowers": "flower", "hollow hearts": "heart_line"}
 
 # Mood presets: how unruly the letters and the lines are. "custom" uses the sliders.
 MOODS = {
@@ -377,8 +387,113 @@ def _anger():
     return polygons
 
 
+def _cut(points):
+    """A polygon that is taken out of what was drawn before it, not added."""
+    return {"cut": points}
+
+
+def _points(shape):
+    return shape["cut"] if isinstance(shape, dict) else shape
+
+
+def _moved(shapes, scale, cx, cy, turn=0.0):
+    """Shapes shrunk about the middle of the tile, turned (degrees, clockwise) and put at cx, cy."""
+    cos, sin = math.cos(math.radians(turn)), math.sin(math.radians(turn))
+    out = []
+    for shape in shapes:
+        points = [(cx + scale * ((x - 0.5) * cos - (y - 0.5) * sin), cy + scale * ((x - 0.5) * sin + (y - 0.5) * cos))
+                  for x, y in _points(shape)]
+        out.append(_cut(points) if isinstance(shape, dict) else points)
+    return out
+
+
+def _line(points, wide):
+    """A line of the given width through the points, with round ends and joints."""
+    shapes = []
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        length = math.hypot(x1 - x0, y1 - y0) or 1.0
+        nx, ny = -(y1 - y0) / length * wide / 2.0, (x1 - x0) / length * wide / 2.0
+        shapes.append([(x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny)])
+    shapes.extend(_ellipse(x, y, wide / 2.0, wide / 2.0, 14) for x, y in points)
+    return shapes
+
+
+def _cuts(shapes):
+    return [_cut(_points(shape)) for shape in shapes]
+
+
+def _z():
+    return [[(0.0, 0.0), (1.0, 0.0), (1.0, 0.22), (0.4, 0.78), (1.0, 0.78), (1.0, 1.0), (0.0, 1.0), (0.0, 0.78),
+             (0.6, 0.22), (0.0, 0.22)]]
+
+
+def _arrow():
+    return [[(0.04, 0.38), (0.56, 0.38), (0.56, 0.16), (0.96, 0.5), (0.56, 0.84), (0.56, 0.62), (0.04, 0.62)]]
+
+
+def _more_shapes():
+    """The marks added to the first six; each fills the unit square like they do."""
+    heart, drop, spark = _heart(), _drop(), _star(4, 0.13)
+    stem = [(0.5, 0.56), (0.68, 0.98), (0.32, 0.98)]
+    spiral = [(0.5 + (0.04 + 0.42 * t) * math.cos(2 * math.pi * 2.4 * t), 0.5 + (0.04 + 0.42 * t) * math.sin(2 * math.pi * 2.4 * t))
+              for t in [step / 70.0 for step in range(71)]]
+    wave = [(0.05 + 0.9 * t, 0.5 + 0.17 * math.sin(2 * math.pi * 2 * t)) for t in [step / 40.0 for step in range(41)]]
+    steam = []
+    for x0 in (0.24, 0.5, 0.76):
+        steam += _line([(x0 + 0.07 * math.sin(2 * math.pi * 1.5 * t), 0.92 - 0.84 * t) for t in [s / 24.0 for s in range(25)]], 0.075)
+    rays = []
+    for step in range(8):
+        angle = math.pi / 4 * step
+        rays += _line([(0.5 + 0.34 * math.cos(angle), 0.5 + 0.34 * math.sin(angle)),
+                       (0.5 + 0.46 * math.cos(angle), 0.5 + 0.46 * math.sin(angle))], 0.075)
+    petals = [_ellipse(0.5 + 0.27 * math.cos(2 * math.pi * k / 5 - math.pi / 2),
+                       0.5 + 0.27 * math.sin(2 * math.pi * k / 5 - math.pi / 2), 0.2, 0.2) for k in range(5)]
+    return {
+        "heart_line": heart + _cuts(_moved(heart, 0.64, 0.5, 0.5)),
+        "hearts": _moved(heart, 0.68, 0.36, 0.62) + _moved(heart, 0.44, 0.76, 0.26, 14),
+        "heart_broken": heart + _cuts(_line([(0.52, 0.1), (0.42, 0.3), (0.57, 0.46), (0.44, 0.64), (0.5, 0.92)], 0.07)),
+        "star_line": _star(5, 0.2) + _cuts(_moved(_star(5, 0.2), 0.52, 0.5, 0.52)),
+        "sparkles": _moved(spark, 0.72, 0.38, 0.58) + _moved(spark, 0.4, 0.78, 0.24) + _moved(spark, 0.3, 0.82, 0.8),
+        "burst": _star(10, 0.3),
+        "notes": [_ellipse(0.22, 0.8, 0.17, 0.13), _ellipse(0.68, 0.72, 0.17, 0.13),
+                  [(0.3, 0.16), (0.39, 0.16), (0.39, 0.8), (0.3, 0.8)], [(0.76, 0.08), (0.85, 0.08), (0.85, 0.72), (0.76, 0.72)],
+                  [(0.3, 0.16), (0.85, 0.08), (0.85, 0.27), (0.3, 0.35)]],
+        "bolt": [[(0.6, 0.02), (0.2, 0.55), (0.46, 0.55), (0.34, 0.98), (0.82, 0.4), (0.54, 0.4), (0.74, 0.02)]],
+        "flame": [[(0.5, 0.02), (0.62, 0.2), (0.8, 0.38), (0.88, 0.6), (0.8, 0.82), (0.62, 0.96), (0.5, 0.98), (0.36, 0.96),
+                   (0.2, 0.84), (0.12, 0.64), (0.18, 0.46), (0.3, 0.36), (0.34, 0.52), (0.44, 0.4), (0.46, 0.2)],
+                  _cut([(0.5, 0.56), (0.6, 0.7), (0.6, 0.84), (0.5, 0.9), (0.4, 0.84), (0.4, 0.7)])],
+        "splash": _moved(drop, 0.5, 0.5, 0.27) + _moved(drop, 0.46, 0.22, 0.7, -32) + _moved(drop, 0.46, 0.78, 0.7, 32),
+        "steam": steam,
+        "puff": [_ellipse(0.62, 0.5, 0.27, 0.23), _ellipse(0.4, 0.57, 0.2, 0.17), _ellipse(0.8, 0.64, 0.16, 0.14)]
+                + _line([(0.03, 0.42), (0.17, 0.42)], 0.06) + _line([(0.02, 0.64), (0.14, 0.64)], 0.06),
+        "zzz": _moved(_z(), 0.46, 0.26, 0.74) + _moved(_z(), 0.3, 0.68, 0.38) + _moved(_z(), 0.18, 0.9, 0.1),
+        "spiral": _line(spiral, 0.085),
+        "wave": _line(wave, 0.1),
+        "blush": [shape for k in range(3) for shape in _line([(0.12 + 0.28 * k, 0.82), (0.32 + 0.28 * k, 0.18)], 0.085)],
+        "lips": [[(0.03, 0.5), (0.22, 0.3), (0.4, 0.23), (0.5, 0.32), (0.6, 0.23), (0.78, 0.3), (0.97, 0.5), (0.78, 0.74),
+                  (0.5, 0.85), (0.22, 0.74)]]
+                + _cuts(_line([(0.13, 0.5), (0.35, 0.47), (0.5, 0.53), (0.65, 0.47), (0.87, 0.5)], 0.04)),
+        "male": [_ellipse(0.4, 0.62, 0.32, 0.32), _cut(_ellipse(0.4, 0.62, 0.2, 0.2))]
+                + _line([(0.63, 0.39), (0.9, 0.12)], 0.1) + _line([(0.62, 0.1), (0.91, 0.1), (0.91, 0.39)], 0.1),
+        "female": [_ellipse(0.5, 0.33, 0.29, 0.29), _cut(_ellipse(0.5, 0.33, 0.17, 0.17))]
+                  + _line([(0.5, 0.62), (0.5, 0.96)], 0.11) + _line([(0.3, 0.8), (0.7, 0.8)], 0.11),
+        "flower": petals + [_cut(_ellipse(0.5, 0.5, 0.1, 0.1))],
+        "moon": [_ellipse(0.48, 0.5, 0.46, 0.46, 40), _cut(_ellipse(0.66, 0.42, 0.38, 0.38, 40))],
+        "sun": [_ellipse(0.5, 0.5, 0.24, 0.24)] + rays,
+        "cross": _line([(0.14, 0.14), (0.86, 0.86)], 0.17) + _line([(0.86, 0.14), (0.14, 0.86)], 0.17),
+        "ring": [_ellipse(0.5, 0.5, 0.46, 0.46, 40), _cut(_ellipse(0.5, 0.5, 0.31, 0.31, 40))],
+        "arrow_right": _arrow(), "arrow_down": _moved(_arrow(), 1.0, 0.5, 0.5, 90),
+        "arrow_left": _moved(_arrow(), 1.0, 0.5, 0.5, 180), "arrow_up": _moved(_arrow(), 1.0, 0.5, 0.5, 270),
+        "diamond": [[(0.5, 0.02), (0.88, 0.5), (0.5, 0.98), (0.12, 0.5)]],
+        "spade": _moved(heart, 0.84, 0.5, 0.42, 180) + [stem],
+        "club": [_ellipse(0.5, 0.27, 0.22, 0.22), _ellipse(0.27, 0.58, 0.22, 0.22), _ellipse(0.73, 0.58, 0.22, 0.22),
+                 _ellipse(0.5, 0.5, 0.14, 0.14), stem],
+    }
+
+
 SHAPES = {"heart": _heart(), "star": _star(5, 0.2), "spark": _star(4, 0.13), "drop": _drop(),
           "note": _note(), "anger": _anger()}
+SHAPES.update(_more_shapes())
 
 
 def symbol_tile(kind, px, grow=0):
@@ -387,8 +502,9 @@ def symbol_tile(kind, px, grow=0):
     scale = 4
     big = Image.new("L", (px * scale, px * scale), 0)
     draw = ImageDraw.Draw(big)
-    for polygon in SHAPES[kind]:
-        draw.polygon([(x * px * scale, y * px * scale) for x, y in polygon], fill=255)
+    for shape in SHAPES[kind]:  # in order: a cut takes out of what is already there
+        draw.polygon([(x * px * scale, y * px * scale) for x, y in _points(shape)],
+                     fill=0 if isinstance(shape, dict) else 255)
     tile = Image.new("L", (px + 2 * grow, px + 2 * grow), 0)
     tile.paste(big.resize((px, px), Image.LANCZOS), (grow, grow))
     if grow > 0:
