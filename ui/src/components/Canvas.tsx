@@ -454,14 +454,24 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
             className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize touch-none rounded-sm border border-black/60 bg-cl-accent"
           />
           {canTurn && (
-            <div
-              title="Drag to turn"
-              onPointerDown={begin('turn')}
-              onPointerMove={drag}
-              onPointerUp={end}
-              onPointerCancel={end}
-              className="absolute -top-6 left-1/2 h-3 w-3 -translate-x-1/2 cursor-grab touch-none rounded-full border border-black/60 bg-cl-accent"
-            />
+            <>
+              {/* The knob stands clear above the label, on a stem, so it is seen at once. */}
+              <div className="pointer-events-none absolute -top-9 left-1/2 h-9 w-px -translate-x-1/2 bg-cl-accent" />
+              <div
+                title="Drag to turn"
+                aria-label="Drag to turn"
+                onPointerDown={begin('turn')}
+                onPointerMove={drag}
+                onPointerUp={end}
+                onPointerCancel={end}
+                className="absolute -top-[52px] left-1/2 z-10 flex h-5 w-5 -translate-x-1/2 cursor-grab touch-none items-center justify-center rounded-full border border-black/60 bg-cl-accent text-black"
+              >
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M13 8a5 5 0 1 1-1.6-3.7" />
+                  <path d="M13.2 2.6v2.8h-2.8" />
+                </svg>
+              </div>
+            </>
           )}
           {pinned && (
             <button
