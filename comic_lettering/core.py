@@ -92,7 +92,7 @@ def letter(image, text="", caption="", spill=True, placement="auto", style=None,
         static[bubble.y0:bubble.y0 + h, bubble.x0:bubble.x0 + w] |= bubble.filled
     # What must not be covered even when there is no free place: bubbles and heads.
     precious = static.copy()
-    automatic = effects or (free and placement == "auto")
+    automatic = effects or (free and (placement == "auto" or style.caption_bubble != "none"))
     if automatic:
         people = person_mask(rgb)
         info["characters"] = people is not None
@@ -294,6 +294,16 @@ def _fits(lines, size, style, inner, cy, cx):
 
 
 def _fit_bubble(image_height, bubble, text, style, strict):
+    """_fit_text, and when *emphasis* is all that keeps the text out of the bubble, without it."""
+    paragraphs = parse_text(text, style.uppercase)
+    result = _fit_text(image_height, bubble, paragraphs, style, strict)
+    if result is None and any(emph for words in paragraphs for _, emph, _ in words):
+        plain = [[(word, False, glue) for word, _, glue in words] for words in paragraphs]
+        result = _fit_text(image_height, bubble, plain, style, strict)
+    return result
+
+
+def _fit_text(image_height, bubble, paragraphs, style, strict):
     """Largest layout of text that fits the bubble: (lines, size, cx, cy).
 
     Several ways to break the lines are tried, at the largest size that fits and a
@@ -313,7 +323,6 @@ def _fit_bubble(image_height, bubble, text, style, strict):
     if not inner.any():
         inner = body
     cy, cx = ndi.center_of_mass(inner)
-    paragraphs = parse_text(text, style.uppercase)
     smallest = max(8, int(0.012 * image_height))
     if strict:
         smallest = max(smallest, int(round(style.bubble_min_size / 100.0 * image_height)))
@@ -371,34 +380,48 @@ def _letter_free(image, rgb, text, placement, style, static, pal, energy, precio
     # Outlines make the lines taller: leave room for them.
     look.line_spacing += 1.2 * (max(0.0, style.stroke_width) + (0.07 if pal and pal.get("outer") else 0.0))
     paragraphs = parse_text(text, style.uppercase)
-    size = max(8, int(style.free_size / 100.0 * height))
-    corner = "-" in placement
-    reach = 0.46 if corner else 0.88
-    while True:
-        lines = layout(paragraphs, get_fonts(look, size), width * reach)
-        block_w, block_h = block_size(lines, size, look)
-        if (block_h <= height * 0.36 and block_w <= width * (reach + 0.04)) or size <= 8:
-            break
-        size = max(8, min(size - 1, int(size * 0.92)))
-    edge = int(0.04 * height)
+    full = max(8, int(style.free_size / 100.0 * height))
+
+    def fitted(size, reach):
+        while True:
+            lines = layout(paragraphs, get_fonts(look, size), width * reach)
+            block_w, block_h = block_size(lines, size, look)
+            if (block_h <= height * 0.36 and block_w <= width * (reach + 0.04)) or size <= 8:
+                return lines, size, block_w, block_h
+            size = max(8, min(size - 1, int(size * 0.92)))
+
     if placement == "auto":
-        # The calmer of top and bottom; a band over a bubble or a character loses, and
-        # one over a head loses badly: a caption across the legs is fine, across the
-        # face it is not.
-        left = int(max(0, width / 2.0 - block_w / 2.0))
-        right = int(min(width, width / 2.0 + block_w / 2.0))
-        heads = precious
-
-        def cost(rows):
-            covered = static[rows[0]:rows[1], left:right]
-            total = edge_energy(rgb, *rows) + 1000.0 * (float(covered.mean()) if covered.size else 1.0)
-            if heads is not None:
-                total += 3000.0 * float(heads[rows[0]:rows[1], left:right].mean())
-            return total
-
-        top = cost((edge, min(height, edge + block_h)))
-        bottom = cost((max(0, height - edge - block_h), height - edge))
-        placement = "top" if top < bottom else "bottom"
+        # A band at the top or the bottom, or a narrower block in a corner; if none of
+        # them is clear of bubbles and characters, the same a little smaller. The calmest
+        # clear one wins. If nothing is clear, the full-size one that covers the least,
+        # a head counting most: a caption across the legs is fine, across the face it is not.
+        options = []  # (smaller, narrow, cost, clear, name, fit), in order of preference
+        for factor in (1.0, 0.85, 0.72):
+            for names, reach in ((("top", "bottom"), 0.88),
+                                 (("top-left", "top-right", "bottom-left", "bottom-right"), 0.46)):
+                fit = fitted(max(8, int(full * factor)), reach)
+                for name in names:
+                    cx, cy = _anchor(name, fit[2], fit[3], width, height)
+                    x0, y0 = int(cx - fit[2] / 2.0), int(cy - fit[3] / 2.0)
+                    rows = (max(0, y0), min(height, y0 + int(fit[3])))
+                    cols = slice(max(0, x0), max(0, x0 + int(fit[2])))
+                    covered = static[rows[0]:rows[1], cols]
+                    share = float(covered.mean()) if covered.size else 1.0
+                    total = edge_energy(rgb, *rows) + 1000.0 * share
+                    if precious is not None:
+                        total += 3000.0 * float(precious[rows[0]:rows[1], cols].mean())
+                    options.append((factor < 1.0, reach < 0.5, total, share < 0.02, name, fit))
+            if any(option[3] for option in options):
+                break
+        clear = [option for option in options if option[3]]
+        if clear:
+            kind = clear[0][:2]
+            best = min((option for option in clear if option[:2] == kind), key=lambda option: option[2])
+        else:
+            best = min((option for option in options if not option[0]), key=lambda option: option[2])
+        placement, (lines, size, block_w, block_h) = best[4], best[5]
+    else:
+        lines, size, block_w, block_h = fitted(full, 0.46 if "-" in placement else 0.88)
     cx, cy = _anchor(placement, block_w, block_h, width, height)
     paint = _paint(style, "caption", pal, size, look.font)
     layer = render_block(lines, size, look, paint)
@@ -406,6 +429,18 @@ def _letter_free(image, rgb, text, placement, style, static, pal, energy, precio
     box = (int(cx - block_w / 2.0 - size), int(cy - block_h / 2.0 - size * 0.5),
            int(cx + block_w / 2.0 + size), int(cy + block_h / 2.0 + size * 0.5))
     return paste_centered(image, layer, cx, cy), size, box
+
+
+def _covered(static, precious, x, y, box_w, box_h):
+    """How much of a box lies on bubbles and characters; heads and bubbles count four times."""
+    rows, cols = slice(max(0, int(y)), max(0, int(y + box_h))), slice(max(0, int(x)), max(0, int(x + box_w)))
+    part = static[rows, cols]
+    if not part.size:
+        return 1.0
+    score = float(part.mean())
+    if precious is not None:
+        score += 3.0 * float(precious[rows, cols].mean())
+    return score
 
 
 def _drawn_bubble(paragraphs, look, style, size, width, height, tall=False):
@@ -467,9 +502,19 @@ def _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy
                 break
         _, (lines, size, fill_mask, outline, bx, by), x, y = chosen
     else:
-        lines, size, fill_mask, outline, bx, by = _drawn_bubble(paragraphs, look, style, full, width, height)
-        cx, cy = _anchor(placement, fill_mask.width, fill_mask.height, width, height)
-        x, y = int(cx - fill_mask.width / 2.0), int(cy - fill_mask.height / 2.0)
+        # A fixed place: smaller sizes are tried there until the bubble is clear of bubbles
+        # and characters. If none is, it lands on them anyway: then a moderately smaller
+        # one is drawn, not the smallest, which would only be harder to read.
+        tried = []
+        for factor in (1.0, 0.85, 0.72, 0.6):
+            drawn = _drawn_bubble(paragraphs, look, style, max(8, int(full * factor)), width, height)
+            cx, cy = _anchor(placement, drawn[2].width, drawn[2].height, width, height)
+            x, y = int(cx - drawn[2].width / 2.0), int(cy - drawn[2].height / 2.0)
+            tried.append((drawn, x, y))
+            clear = _covered(static, precious, x, y, drawn[2].width, drawn[2].height) < 0.02
+            if clear:
+                break
+        (lines, size, fill_mask, outline, bx, by), x, y = tried[-1] if clear else tried[2]
     if style.caption_bubble_theme == "dark":
         body = (14, 14, 18)
         line = pal["fill"] if pal else parse_color(style.text_color, (255, 255, 255))

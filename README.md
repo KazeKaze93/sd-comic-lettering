@@ -68,12 +68,12 @@ Add the `Comic Lettering` node (category `image/postprocessing`) between `VAE De
 Three fields:
 
 - **Bubbles**: one line per bubble, in reading order (top to bottom, left to right). An empty line skips a bubble. Line breaks inside a bubble are placed automatically, at the largest font size that fits, and so that the lines form a diamond: short at the top and bottom, long in the middle.
-- **Caption**: text drawn straight onto the art, outside the bubbles, or inside a bubble drawn for it. With `auto` placement it takes the calmer of top and bottom, keeps off the bubbles and avoids covering a head.
+- **Caption**: text drawn straight onto the art, outside the bubbles, or inside a bubble drawn for it. With `auto` placement it tries a band at the top or the bottom, then a narrower block in a corner, then the same a little smaller, and takes the first that is clear of bubbles and characters; if none is, the one that covers the least, a head counting most.
 - **Sound effects**: one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the characters, the caption and the other effects. `FAP x5` stacks the word five times in a ragged column. **Move** sends each of them to another place. An effect that would land on a character is drawn smaller first, down to 65%; in a crowded image it can still end up on a character, never on a head first. Changing the look of an effect does not move it.
 
 In any field:
 
-- `*word*` makes a word bigger.
+- `*word*` makes a word bigger. In a bubble too tight for the bigger word the text is written without the emphasis instead of being moved to the caption.
 - `♥` (or `<3`), `★`, `✦`, `♪`, `💢`, `💧` are drawn as shapes: heart, star, sparkle, note, anger mark, drop.
 - A word may break after a hyphen (`H-m-m`) when that lets the text be bigger.
 
@@ -134,6 +134,6 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 - Anything else that looks the same gets lettered too, such as a blank sheet of paper on a wall. Use `Bubble numbers` to see what was found and an empty line to skip it.
 - A narrow bubble cannot hold a long word at a readable size. Such text goes to the caption.
 - When a character fills most of the frame there may be no free place: a drawn bubble is then tried tall and narrow and shrunk, down to half, and put where it covers the least, keeping off heads and bubbles first. The head is taken to be the top quarter of a character, so this fails for a character lying down or upside down.
-- Marks around a text are left out where they would land on a character or be cut by the image edge. An effect made of symbols alone gets no marks. A caption with a fixed placement (`top`, a corner) avoids nothing.
+- Marks around a text are left out where they would land on a character or be cut by the image edge. An effect made of symbols alone gets no marks. A caption with a fixed placement (`top`, a corner) avoids nothing; a bubble drawn for it there is made smaller (down to 0.6 of the size) until it is clear of bubbles and characters, or drawn at 0.72 of the size if it lands on them anyway.
 - The place of a sound effect is chosen for an estimated box, so a very wide font can make two effects touch.
 - No emoji fallback font.
