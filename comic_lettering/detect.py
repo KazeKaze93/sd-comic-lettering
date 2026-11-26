@@ -73,6 +73,15 @@ def is_bubble(item, min_outline=0.8):
         return (item["flatness"] <= 2.5 and item["solidity"] >= 0.9
                 and 0.45 <= item["extent"] < 0.96 and item["outline"] >= max(min_outline, 0.85)
                 and item["body"] >= 0.55 and item["line_contrast"] >= 80.0)
+    color = item["bubble"].color
+    if max(color) - min(color) > 32:
+        # A tinted fill (cream, beige paper) is also what skin in a dim scene looks like:
+        # a face passed as a bubble. Measured on real generations, paper bubbles are
+        # bright (181), flat (0.70) and plump with a closed outline; the face was dim
+        # (139), less flat (1.18) and less convex (0.89).
+        if not (sum(color) / 3.0 >= 160 and item["flatness"] <= 0.9 and item["solidity"] >= 0.93
+                and item["outline"] >= max(min_outline, 0.9)):
+            return False
     if item["share"] < SMALL:
         # Small ones (the detector used to stop at SMALL): cuffs, window panes and the
         # insides of big letters are just as flat and outlined. On real generations a
