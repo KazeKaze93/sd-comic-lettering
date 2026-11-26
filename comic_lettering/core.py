@@ -22,7 +22,7 @@ SHAPE_WEIGHT = 0.6   # how much font size a better line shape is worth
 SHAPE_REACH = 0.8    # look for a better shape down to this share of the largest size
 MAX_LINES = 8        # more lines than this in one bubble is a wall of text: it goes to the caption
 SAMPLE_TEXT = u"Hello! Привет! 123"
-REPEAT = re.compile(u"^(.*?\\S)\\s*[xX×]\\s*(\\d{1,2})$")  # "FAP x5"
+REPEAT = re.compile(u"^(.*?\\S)\\s*[xX×]\\s*(\\d{1,2})$")  # "THUD x3"
 
 
 def letter(image, text="", caption="", spill=True, placement="auto", style=None, erase=True,
@@ -39,7 +39,7 @@ def letter(image, text="", caption="", spill=True, placement="auto", style=None,
     without a bubble are added to the caption. Off: always write into the bubbles,
     however small, and drop the lines left over.
     numbers: draw each bubble's number instead of any text, to see the order.
-    sfx: sound effects, one per line ("SLAP", "THUD", "FAP x5"). Each is drawn big and
+    sfx: sound effects, one per line ("SLAP", "THUD", "BAM x5"). Each is drawn big and
     tilted in a calm, empty part of the art, clear of the bubbles, the caption and each
     other. "WORD x5" stacks the word five times in a column.
 
@@ -1283,7 +1283,7 @@ def _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height, ro
 
 
 def _repeat(effect):
-    """("FAP", 5) for "FAP x5"; (the effect, 1) otherwise."""
+    """("BAM", 5) for "BAM x5"; (the effect, 1) otherwise."""
     repeat = REPEAT.match(effect)
     count = min(12, int(repeat.group(2))) if repeat else 1
     return (repeat.group(1) if repeat and count > 1 else effect), count
@@ -1359,7 +1359,7 @@ def _draw_sfx(image, item, static, taken, style, pal, width, height):
     seed = style.sfx_seed + index * 101
     word, count = _repeat(effect)
     if count > 1:
-        # "FAP x5": the word several times in a ragged column.
+        # "THUD x3": the word several times in a ragged column.
         rows = []
         for row in range(count):
             piece, paint, _ = _sfx_layer(word, max(10, int(size * rng.uniform(0.7, 1.15))),
