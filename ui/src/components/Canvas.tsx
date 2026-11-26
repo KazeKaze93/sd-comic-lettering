@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api'
-import { boxOf, bubbleShapes, type Box } from '../geometry'
+import { boxOf, bubbleShapes, placeHandles, turned, type Box, type CornerSide, type KnobSide } from '../geometry'
 import { useStore } from '../store'
 import type { Pin, Region, SceneItem, Shape, Slot } from '../types'
+import { Button } from './controls'
 
 /** Keep receiving the pointer while it is down, where the browser allows it. */
 function capture(event: ReactPointerEvent) {
@@ -17,19 +18,125 @@ function capture(event: ReactPointerEvent) {
 function useFit(width: number, height: number) {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
+  // The room the element itself has: the picture stands in its middle.
+  const [room, setRoom] = useState({ width: 0, height: 0 })
   useEffect(() => {
     const element = ref.current
     if (!element) return
     const measure = () => {
       const scale = Math.min(element.clientWidth / width, element.clientHeight / height)
       setSize({ width: Math.floor(width * scale), height: Math.floor(height * scale) })
+      setRoom({ width: element.clientWidth, height: element.clientHeight })
     }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(element)
     return () => observer.disconnect()
   }, [width, height])
-  return { ref, size }
+  return { ref, size, room }
+}
+
+/** The part of the canvas that can be seen, in screen pixels counted from the picture's corner. */
+interface View {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+/** A frame on the picture that a handle must not sit on: whose it is, and its box in screen pixels. */
+interface Frame {
+  id: string | null
+  box: Box
+}
+
+/** Colors by where a thing comes from: found or placed by the script, placed or drawn by hand, kept clear. */
+type Tone = 'auto' | 'hand' | 'keepout'
+const TONES: Record<Tone, { border: string; soft: string; faint: string; wash: string; fill: string; text: string }> = {
+  auto: {
+    border: 'border-cl-accent',
+    soft: 'border-cl-accent/80',
+    faint: 'border-cl-accent/50 hover:border-cl-accent',
+    wash: 'bg-cl-accent/10',
+    fill: 'bg-cl-accent',
+    text: 'text-cl-accent',
+  },
+  hand: {
+    border: 'border-cl-hand',
+    soft: 'border-cl-hand/80',
+    faint: 'border-cl-hand/50 hover:border-cl-hand',
+    wash: 'bg-cl-hand/10',
+    fill: 'bg-cl-hand',
+    text: 'text-cl-hand',
+  },
+  keepout: {
+    border: 'border-cl-danger',
+    soft: 'border-cl-danger/80',
+    faint: 'border-cl-danger/50 hover:border-cl-danger',
+    wash: 'bg-cl-danger/10',
+    fill: 'bg-cl-danger',
+    text: 'text-cl-danger',
+  },
+}
+
+/** Where the turn knob and its stem stand, by side. An item's knob is 42 pixels out, an area's 34. */
+const KNOBS: Record<'item' | 'area', { reach: number; knob: Record<KnobSide, string>; stem: Record<KnobSide, string> }> = {
+  item: {
+    reach: 42,
+    knob: {
+      top: '-top-[52px] left-1/2 -translate-x-1/2',
+      bottom: '-bottom-[52px] left-1/2 -translate-x-1/2',
+      right: '-right-[52px] top-1/2 -translate-y-1/2',
+      left: '-left-[52px] top-1/2 -translate-y-1/2',
+    },
+    stem: {
+      top: '-top-9 left-1/2 h-9 w-px -translate-x-1/2',
+      bottom: '-bottom-9 left-1/2 h-9 w-px -translate-x-1/2',
+      right: '-right-9 top-1/2 h-px w-9 -translate-y-1/2',
+      left: '-left-9 top-1/2 h-px w-9 -translate-y-1/2',
+    },
+  },
+  area: {
+    reach: 34,
+    knob: {
+      top: '-top-[44px] left-1/2 -translate-x-1/2',
+      bottom: '-bottom-[44px] left-1/2 -translate-x-1/2',
+      right: '-right-[44px] top-1/2 -translate-y-1/2',
+      left: '-left-[44px] top-1/2 -translate-y-1/2',
+    },
+    stem: {
+      top: '-top-7 left-1/2 h-7 w-px -translate-x-1/2',
+      bottom: '-bottom-7 left-1/2 h-7 w-px -translate-x-1/2',
+      right: '-right-7 top-1/2 h-px w-7 -translate-y-1/2',
+      left: '-left-7 top-1/2 h-px w-7 -translate-y-1/2',
+    },
+  },
+}
+
+const CORNERS: Record<CornerSide, string> = {
+  br: '-bottom-1.5 -right-1.5 cursor-nwse-resize',
+  bl: '-bottom-1.5 -left-1.5 cursor-nesw-resize',
+  tr: '-top-1.5 -right-1.5 cursor-nesw-resize',
+  tl: '-top-1.5 -left-1.5 cursor-nwse-resize',
+}
+
+/** A small round number: on a found bubble, and before a step of what to do first. */
+function Pill({ children }: { children: number }) {
+  return (
+    <span className="inline-block h-[18px] min-w-[18px] shrink-0 rounded-full bg-cl-accent px-1 text-center text-[11px] font-bold leading-[18px] text-cl-on-accent ring-2 ring-cl-bg">
+      {children}
+    </span>
+  )
+}
+
+/** The arrow going round, on a turn knob. */
+function TurnIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M13 8a5 5 0 1 1-1.6-3.7" />
+      <path d="M13.2 2.6v2.8h-2.8" />
+    </svg>
+  )
 }
 
 /** Where an item stands, in image pixels: its middle, its size and its tilt. */
@@ -72,9 +179,10 @@ const NAMES: Record<SceneItem['kind'], string> = {
   path: 'area',
 }
 
+// What the hand drew is in the color of the hand; an area to keep clear warns.
 const TINTS: Record<Region['kind'], string> = {
-  text: 'rgb(var(--cl-accent))',
-  sfx: 'rgb(var(--cl-warning))',
+  text: 'rgb(var(--cl-hand))',
+  sfx: 'rgb(var(--cl-hand))',
   keepout: 'rgb(var(--cl-danger))',
 }
 
@@ -252,8 +360,10 @@ function DrawLayer({ slot, scale, onDraw }: { slot: Slot; scale: number; onDraw:
 /** Frames of the bubbles found in the art: numbered in reading order, dashed if left empty. */
 function FoundBubbles({ slot, scale }: { slot: Slot; scale: number }) {
   const filled = new Set(slot.items.filter((item) => item.kind === 'bubble').map((item) => item.bubble))
-  const label = 12 / Math.max(scale, 0.01) // one size on screen whatever the size of the image
+  const wide = slot.width * scale
+  const tall = slot.height * scale
   return (
+    <>
     <svg viewBox={`0 0 ${slot.width} ${slot.height}`} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
       {slot.bubbles.map((box, index) => (
         <g key={index}>
@@ -268,12 +378,25 @@ function FoundBubbles({ slot, scale }: { slot: Slot; scale: number }) {
             vectorEffect="non-scaling-stroke"
             strokeWidth={1.5}
           />
-          <text x={box[0] + 3} y={box[1] - 4} fontSize={label} fill="rgb(var(--cl-accent))" stroke="black" strokeWidth={label / 6} paintOrder="stroke">
-            {index + 1}
-          </text>
         </g>
       ))}
     </svg>
+    {/* The numbers stand on the bubbles' corners, one size on screen whatever the size of the image. */}
+    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+      {slot.bubbles.map((box, index) => (
+        <span
+          key={index}
+          className="absolute flex"
+          style={{
+            left: Math.max(0, Math.min(wide - 18, box[0] * scale - 9)),
+            top: Math.max(0, Math.min(tall - 18, box[1] * scale - 9)),
+          }}
+        >
+          <Pill>{index + 1}</Pill>
+        </span>
+      ))}
+    </div>
+    </>
   )
 }
 
@@ -345,7 +468,7 @@ interface Pending {
 const STILL: Omit<Pending, 'id'> = { dx: 0, dy: 0, factor: 1, turn: 0 }
 
 /** A frame that can be dragged, with a corner to resize it and a knob to turn it. */
-function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: number }) {
+function Handle({ item, slot, scale, view, frames }: { item: SceneItem; slot: Slot; scale: number; view: View; frames: Frame[] }) {
   const id = item.id as string
   const selected = useStore((state) => state.selected === id)
   const { select, setPin, clearPins } = useStore.getState()
@@ -436,7 +559,26 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
     setPin(id, pin)
   }
 
-  const border = selected ? 'border-cl-accent' : pinned ? 'border-cl-accent/80' : 'border-cl-accent/50 hover:border-cl-accent'
+  // Placed by the script or by hand: the frame says which by its color.
+  const tone = TONES[pinned ? 'hand' : 'auto']
+  const border = selected ? tone.border : pinned ? tone.soft : tone.faint
+  // The handles go where they can be reached. Worked out from where the item stands, not
+  // from the drag under way: a handle that changed sides under the pointer would be lost.
+  const home: [number, number] = [place.cx * scale, place.cy * scale]
+  const spots = placeHandles({
+    center: home,
+    size: [place.width * scale, place.height * scale],
+    angle: -place.rotation,
+    knobReach: canTurn ? KNOBS.item.reach : 0,
+    viewport: view,
+    obstacles: frames.filter((frame) => frame.id !== id).map((frame) => frame.box),
+    margin: 6,
+  })
+  // "Place automatically" goes under the frame; above it when there is no room under, and
+  // never on the side the knob took.
+  const under = turned([[home[0], home[1] + (place.height * scale) / 2 + 18]], home[0], home[1], -place.rotation, 1)[0]
+  let buttonAt: 'top' | 'bottom' = under[1] + 12 > view.bottom ? 'top' : 'bottom'
+  if (spots.knob === buttonAt) buttonAt = buttonAt === 'top' ? 'bottom' : 'top'
   return (
     <>
     {pending && <Ghost slot={slot} scale={scale} box={reach(place)} dx={pending.dx} dy={pending.dy} factor={pending.factor} turn={pending.turn} />}
@@ -468,10 +610,10 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
         }}
         onFocus={() => select(id)}
         className={`h-full w-full cursor-move touch-none rounded-sm border ${selected || pinned ? 'border-solid' : 'border-dashed'} ${border} ${
-          selected ? 'bg-cl-accent/10' : ''
+          selected ? tone.wash : ''
         } outline-none`}
       />
-      <span className="pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-black/60 px-1 text-[11px] leading-4 text-cl-accent-text">
+      <span className={`pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-cl-bg/80 px-1 text-[11px] leading-4 ${tone.text}`}>
         {NAMES[item.kind]}
         {pinned ? ' · placed by hand' : ''}
       </span>
@@ -483,12 +625,12 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
             onPointerMove={drag}
             onPointerUp={end}
             onPointerCancel={end}
-            className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize touch-none rounded-sm border border-black/60 bg-cl-accent"
+            className={`absolute ${CORNERS[spots.corner]} h-3 w-3 touch-none rounded-sm border border-cl-bg ${tone.fill}`}
           />
-          {canTurn && (
+          {spots.knob && (
             <>
-              {/* The knob stands clear above the label, on a stem, so it is seen at once. */}
-              <div className="pointer-events-none absolute -top-9 left-1/2 h-9 w-px -translate-x-1/2 bg-cl-accent" />
+              {/* The knob stands clear of the frame, on a stem, so it is seen at once. */}
+              <div className={`pointer-events-none absolute ${KNOBS.item.stem[spots.knob]} ${tone.fill}`} />
               <div
                 title="Drag to turn"
                 aria-label="Drag to turn"
@@ -496,12 +638,9 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
                 onPointerMove={drag}
                 onPointerUp={end}
                 onPointerCancel={end}
-                className="absolute -top-[52px] left-1/2 z-10 flex h-5 w-5 -translate-x-1/2 cursor-grab touch-none items-center justify-center rounded-full border border-black/60 bg-cl-accent text-black"
+                className={`absolute ${KNOBS.item.knob[spots.knob]} z-10 flex h-5 w-5 cursor-grab touch-none items-center justify-center rounded-full border border-cl-bg ${tone.fill} text-cl-on-accent`}
               >
-                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M13 8a5 5 0 1 1-1.6-3.7" />
-                  <path d="M13.2 2.6v2.8h-2.8" />
-                </svg>
+                <TurnIcon />
               </div>
             </>
           )}
@@ -510,7 +649,7 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
               type="button"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={() => clearPins(id)}
-              className="absolute -bottom-7 left-0 whitespace-nowrap rounded border border-cl-border bg-cl-raised px-1.5 text-[11px] leading-5 text-cl-text hover:border-cl-muted"
+              className={`absolute ${buttonAt === 'bottom' ? '-bottom-7' : '-top-[46px]'} left-0 whitespace-nowrap rounded border border-cl-border bg-cl-raised px-1.5 text-[11px] leading-5 text-cl-text hover:border-cl-muted`}
             >
               Place automatically
             </button>
@@ -523,7 +662,7 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
 }
 
 /** With the arrow: a click on an area picks it and brings up its text; a drag moves the area. */
-function AreaGrip({ region, slot, scale }: { region: Region; slot: Slot; scale: number }) {
+function AreaGrip({ region, slot, scale, view, frames }: { region: Region; slot: Slot; scale: number; view: View; frames: Frame[] }) {
   const start = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const picked = useStore((state) => state.region === region.id)
   // What the drag showed, kept until the server has drawn the area where it now is.
@@ -572,13 +711,25 @@ function AreaGrip({ region, slot, scale }: { region: Region; slot: Slot; scale: 
   }
   // The handles stay while they are dragged: taking one away under the pointer would end the drag unfinished.
   const handles = picked
+  const tone = TONES[region.kind === 'keepout' ? 'keepout' : 'hand']
+  // Where the area stands, not where a drag under way shows it: see Handle.
+  const spots = placeHandles({
+    center: [((box[0] + box[2]) / 2) * scale, ((box[1] + box[3]) / 2) * scale],
+    size: [(box[2] - box[0]) * scale, (box[3] - box[1]) * scale],
+    angle: 0,
+    knobReach: KNOBS.area.reach,
+    viewport: view,
+    obstacles: frames.filter((frame) => frame.id !== `area:${region.id}`).map((frame) => frame.box),
+    margin: 6,
+  })
+  const knob = spots.knob ?? 'top'
   return (
     <>
       {ghost && <Ghost slot={slot} scale={scale} box={ghost.box} dx={ghost.dx} dy={ghost.dy} factor={ghost.factor} turn={-ghost.turn} />}
       <div
         ref={grip}
         title="Click to edit this area, drag to move it"
-        className={`absolute cursor-move touch-none ${picked ? 'rounded-sm border border-cl-accent' : ''}`}
+        className={`absolute cursor-move touch-none ${picked ? `rounded-sm border ${tone.border} ${tone.wash}` : ''}`}
         onPointerEnter={() => useStore.getState().setHover(region.id)}
         onPointerLeave={() => useStore.getState().setHover(null)}
         style={{
@@ -628,9 +779,9 @@ function AreaGrip({ region, slot, scale }: { region: Region; slot: Slot; scale: 
               onPointerMove={reshape}
               onPointerUp={endReshape}
               onPointerCancel={endReshape}
-              className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize touch-none rounded-sm border border-black/60 bg-cl-accent"
+              className={`absolute ${CORNERS[spots.corner]} h-3 w-3 touch-none rounded-sm border border-cl-bg ${tone.fill}`}
             />
-            <div className="pointer-events-none absolute -top-7 left-1/2 h-7 w-px -translate-x-1/2 bg-cl-accent" />
+            <div className={`pointer-events-none absolute ${KNOBS.area.stem[knob]} ${tone.fill}`} />
             <div
               title="Drag to turn"
               aria-label="Drag to turn"
@@ -638,12 +789,9 @@ function AreaGrip({ region, slot, scale }: { region: Region; slot: Slot; scale: 
               onPointerMove={reshape}
               onPointerUp={endReshape}
               onPointerCancel={endReshape}
-              className="absolute -top-[44px] left-1/2 z-10 flex h-5 w-5 -translate-x-1/2 cursor-grab touch-none items-center justify-center rounded-full border border-black/60 bg-cl-accent text-black"
+              className={`absolute ${KNOBS.area.knob[knob]} z-10 flex h-5 w-5 cursor-grab touch-none items-center justify-center rounded-full border border-cl-bg ${tone.fill} text-cl-on-accent`}
             >
-              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M13 8a5 5 0 1 1-1.6-3.7" />
-                <path d="M13.2 2.6v2.8h-2.8" />
-              </svg>
+              <TurnIcon />
             </div>
           </>
         )}
@@ -713,9 +861,26 @@ function Picture({ slot }: { slot: Slot }) {
   const pickedId = useStore((state) => state.region)
   const [drawing, setDrawing] = useState<Shape | null>(null)
   const picked = slot.regions.find((region) => region.id === pickedId)
-  const { ref, size } = useFit(slot.width, slot.height)
+  const { ref, size, room } = useFit(slot.width, slot.height)
   const which = showOriginal || slot.empty ? 'original' : 'result'
   const scale = size.width / slot.width
+  // What can be seen of the canvas around the picture, and the frames standing on it: the
+  // handles of a picked frame keep inside the one and off the others.
+  const sideways = (room.width - size.width) / 2
+  const upright = (room.height - size.height) / 2
+  const view: View = { left: -sideways, top: -upright, right: size.width + sideways, bottom: size.height + upright }
+  const onScreen = (box: Box): Box => [box[0] * scale, box[1] * scale, box[2] * scale, box[3] * scale]
+  const handled = slot.items.filter((item) => item.id && item.kind !== 'region' && item.kind !== 'path' && item.region === undefined)
+  const frames: Frame[] = slot.bubbles.map((box) => ({ id: null, box: onScreen(box) }))
+  for (const item of handled) {
+    const place = placeOf(item)
+    if (place) frames.push({ id: item.id as string, box: onScreen(reach(place)) })
+  }
+  const areaFrames: Frame[] = [...frames]
+  for (const region of slot.regions) {
+    const box = boxOf(region.shapes)
+    if (box) areaFrames.push({ id: `area:${region.id}`, box: onScreen(box) })
+  }
   return (
     <div
       ref={ref}
@@ -738,11 +903,11 @@ function Picture({ slot }: { slot: Slot }) {
               <FoundBubbles slot={slot} scale={scale} />
               <Areas slot={slot} drawing={drawing} />
               {tool === 'off' &&
-                slot.regions.map((region) => <AreaGrip key={region.id} region={region} slot={slot} scale={scale} />)}
+                slot.regions.map((region) => (
+                  <AreaGrip key={region.id} region={region} slot={slot} scale={scale} view={view} frames={areaFrames} />
+                ))}
               {tool === 'off' &&
-                slot.items
-                  .filter((item) => item.id && item.kind !== 'region' && item.kind !== 'path' && item.region === undefined)
-                  .map((item) => <Handle key={item.id} item={item} slot={slot} scale={scale} />)}
+                handled.map((item) => <Handle key={item.id} item={item} slot={slot} scale={scale} view={view} frames={frames} />)}
             </>
           )}
           {tool !== 'off' && !showOriginal && <DrawLayer slot={slot} scale={scale} onDraw={setDrawing} />}
@@ -784,6 +949,7 @@ function DropZone() {
     >
       <span>Drop an image here, or click to choose one</span>
       <span className="text-xs">PNG, JPEG or WebP. It stays on this machine.</span>
+      <span className="text-xs">Then type one line per bubble in Bubbles.</span>
       <input
         ref={input}
         type="file"
@@ -798,6 +964,28 @@ function DropZone() {
   )
 }
 
+/** What to do first, when there is no image to letter yet: three steps and a way on without them. */
+function FirstSteps({ title, steps }: { title: string; steps: [string, string, string] }) {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center">
+      <div className="flex max-w-[320px] flex-col gap-3">
+        <div className="text-sm font-medium text-cl-text">{title}</div>
+        <ol className="flex flex-col gap-2">
+          {steps.map((step, index) => (
+            <li key={index} className="flex items-start gap-2 text-xs text-cl-muted">
+              <Pill>{index + 1}</Pill>
+              <span className="pt-px">{step}</span>
+            </li>
+          ))}
+        </ol>
+        <div>
+          <Button onClick={() => useStore.getState().setSource('own')}>Letter your own image</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function Canvas() {
   const source = useStore((state) => state.source)
   const slot = useStore((state) => state.slots[state.source])
@@ -808,16 +996,25 @@ export function Canvas() {
   let body
   if (slot) body = <Picture slot={slot} />
   else if (source === 'own') body = <DropZone />
-  else
+  else if (comfy)
     body = (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cl-muted">
-        {comfy
-          ? 'This node has no image yet. Run the workflow once, then open the editor again. Or letter a file of yours under Own image.'
-          : hostImage
-            ? 'The gallery is empty: generate an image first.'
-            : 'Waiting for the image…'}
-      </div>
+      <FirstSteps
+        title="The node has no image yet"
+        steps={['Run the workflow once.', 'Open this editor again from the node.', 'Type one line per bubble in Bubbles; the node keeps everything.']}
+      />
     )
+  else if (hostImage)
+    body = (
+      <FirstSteps
+        title="Nothing to letter yet"
+        steps={[
+          'Generate an image in txt2img or img2img.',
+          'Type one line per bubble in Bubbles on the right.',
+          'Press To gallery to put the lettered image back, or Save.',
+        ]}
+      />
+    )
+  else body = <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cl-muted">Waiting for the image…</div>
 
   return (
     <div

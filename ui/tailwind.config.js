@@ -15,6 +15,7 @@ export default {
         'cl-accent': color('accent'),
         'cl-accent-text': color('accent-text'),
         'cl-on-accent': color('on-accent'),
+        'cl-hand': color('hand'),
         'cl-warning': color('warning'),
         'cl-danger': color('danger'),
       },
