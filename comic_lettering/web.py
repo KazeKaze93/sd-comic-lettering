@@ -148,10 +148,10 @@ def make_style(s):
     return style
 
 
-def make_scene(image, text, caption, numbers, s, sfx="", pins=None):
+def make_scene(image, text, caption, numbers, s, sfx="", pins=None, regions=None):
     return arrange(image, text, caption=caption, spill=s["spill"], placement=s["placement"],
                    style=make_style(s), erase=s["erase"], white_threshold=s["white_threshold"],
-                   numbers=numbers, sfx=sfx, pins=pins)
+                   numbers=numbers, sfx=sfx, pins=pins, regions=regions)
 
 
 def describe(info):
@@ -188,19 +188,21 @@ def get_session(session_id):
         return session
 
 
-def render_session(session, text, caption, sfx, numbers, settings, pins=None):
+def render_session(session, text, caption, sfx, numbers, settings, pins=None, regions=None):
     """Letter the session's image; returns what the page needs to show the result.
 
-    pins: what was placed by hand on the page, see arrange().
+    pins, regions: what was placed and drawn by hand on the page, see arrange().
     """
     s = merge_values(settings)
-    scene = make_scene(session["image"], text or "", caption or "", bool(numbers), s, sfx or "", pins)
+    scene = make_scene(session["image"], text or "", caption or "", bool(numbers), s, sfx or "", pins, regions)
     result = draw(session["image"], scene)
     with _lock:
         session["result"] = None if scene.get("empty") else result
         session["version"] += 1
         session["png"].pop("result", None)
     message, warning = describe(scene["info"])
+    if scene["info"].get("regions"):
+        message = message.rstrip(".") + ", areas filled: %d." % scene["info"]["regions"]
     if scene.get("empty"):
         message, warning = "No text: this is the original image.", False
     return {"version": session["version"], "status": message, "warning": warning, "empty": bool(scene.get("empty")),
@@ -361,7 +363,7 @@ def register(app, save_folder=None):
         try:
             payload = await run_in_threadpool(render_session, session, body.get("text"), body.get("caption"),
                                               body.get("sfx"), body.get("numbers"), body.get("settings") or {},
-                                              body.get("pins"))
+                                              body.get("pins"), body.get("regions"))
         except Exception as error:  # report it on the page instead of a bare 500
             return fail("%s: %s" % (type(error).__name__, error), 500)
         return JSONResponse(payload)

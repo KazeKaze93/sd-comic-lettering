@@ -1,4 +1,4 @@
-import type { Options, Pin, RenderResult, Settings } from './types'
+import type { Options, Pin, Region, RenderResult, Settings } from './types'
 
 const BASE = '/comic_lettering'
 
@@ -51,7 +51,8 @@ export const api = {
     numbers: boolean,
     settings: Settings,
     pins: Record<string, Pin>,
-  ) => post<RenderResult>('/render', { session, text, caption, sfx, numbers, settings, pins }),
+    regions: Region[],
+  ) => post<RenderResult>('/render', { session, text, caption, sfx, numbers, settings, pins, regions }),
 
   saveSettings: (settings: Settings, auto: Options['auto']) => post<{ ok: boolean }>('/settings', { settings, auto }),
 

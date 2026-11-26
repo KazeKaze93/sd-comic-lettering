@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api, type NewSession } from './api'
-import type { HostImage, LookOf, Options, Pin, Settings, Slot, Source } from './types'
+import type { HostImage, LookOf, Options, Pin, Region, Settings, Shape, Slot, Source, Tool } from './types'
 
 const FONT_KEYS = ['font', 'caption_font', 'sfx_font']
 
@@ -22,6 +22,10 @@ interface State {
   showFrames: boolean
   /** The id of the item picked on the image, if any. */
   selected: string | null
+  /** The drawing tool, its brush width as a share of the image's shorter side, and the area drawn into. */
+  tool: Tool
+  brush: number
+  region: string | null
   busy: boolean
   status: string
   warning: boolean
@@ -44,6 +48,14 @@ interface State {
   setPin: (id: string, pin: Pin) => void
   /** Hand one item, or all of them, back to the automatic placement. */
   clearPins: (id?: string) => void
+  setTool: (tool: Tool) => void
+  setBrush: (brush: number) => void
+  pickRegion: (id: string | null) => void
+  /** Add what was just drawn to the picked area, or start a new area with it. */
+  addShape: (shape: Shape) => void
+  /** Change an area; `render` false while its text is being typed. */
+  changeRegion: (id: string, change: Partial<Region>, render?: boolean) => void
+  removeRegion: (id: string) => void
   resetLook: (keepFonts: boolean) => void
   render: () => Promise<void>
   save: () => Promise<void>
@@ -66,8 +78,11 @@ function slotOf(created: NewSession): Slot {
     status: '',
     warning: false,
     pins: {},
+    regions: [],
   }
 }
+
+let regionCount = 0
 
 export const useStore = create<State>((set, get) => {
   /** Remember the look and what is lettered onto new images, a moment after the last change. */
@@ -97,6 +112,9 @@ export const useStore = create<State>((set, get) => {
     showOriginal: false,
     showFrames: true,
     selected: null,
+    tool: 'off',
+    brush: 0.12,
+    region: null,
     busy: false,
     status: '',
     warning: false,
@@ -218,6 +236,50 @@ export const useStore = create<State>((set, get) => {
       void get().render()
     },
 
+    setTool: (tool) => set({ tool, selected: null }),
+    setBrush: (brush) => set({ brush }),
+    pickRegion: (id) => set({ region: id }),
+
+    addShape: (shape) => {
+      const state = get()
+      const slot = state.slots[state.source]
+      if (!slot) return
+      const picked = slot.regions.find((region) => region.id === state.region)
+      let regions: Region[]
+      let id = state.region
+      if (picked) {
+        regions = slot.regions.map((region) => (region === picked ? { ...region, shapes: [...region.shapes, shape] } : region))
+      } else {
+        regionCount += 1
+        id = `a${Date.now().toString(36)}${regionCount}`
+        regions = [...slot.regions, { id, kind: 'text', shapes: [shape], text: '', fill: 'none' }]
+      }
+      set({ region: id, slots: { ...state.slots, [state.source]: { ...slot, regions } } })
+      void get().render()
+    },
+
+    changeRegion: (id, change, render = true) => {
+      set((state) => {
+        const slot = state.slots[state.source]
+        if (!slot) return {}
+        const regions = slot.regions.map((region) => (region.id === id ? { ...region, ...change } : region))
+        return { slots: { ...state.slots, [state.source]: { ...slot, regions } } }
+      })
+      if (render) void get().render()
+    },
+
+    removeRegion: (id) => {
+      set((state) => {
+        const slot = state.slots[state.source]
+        if (!slot) return {}
+        return {
+          region: state.region === id ? null : state.region,
+          slots: { ...state.slots, [state.source]: { ...slot, regions: slot.regions.filter((region) => region.id !== id) } },
+        }
+      })
+      void get().render()
+    },
+
     resetLook: (keepFonts) => {
       const { options, settings } = get()
       if (!options) return
@@ -237,12 +299,12 @@ export const useStore = create<State>((set, get) => {
         return
       }
       const { text, caption, sfx, numbers, settings, source } = state
-      const signature = JSON.stringify([text, caption, sfx, numbers, settings, slot.pins])
+      const signature = JSON.stringify([text, caption, sfx, numbers, settings, slot.pins, slot.regions])
       if (signature === slot.applied) return
       rendering = true
       set({ busy: true, error: null })
       try {
-        const result = await api.render(slot.session, text, caption, sfx, numbers, settings, slot.pins)
+        const result = await api.render(slot.session, text, caption, sfx, numbers, settings, slot.pins, slot.regions)
         set((now) => {
           const held = now.slots[source]
           if (!held || held.session !== slot.session) return { busy: false }

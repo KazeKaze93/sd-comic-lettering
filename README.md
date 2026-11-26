@@ -54,6 +54,16 @@ The `Comic Lettering` button sits under the txt2img result gallery. It opens the
 
 **Placing by hand.** Drag the frame of the caption, of its drawn bubble or of a sound effect to move it. Click a frame to pick it: the corner square resizes it, the round knob above turns it (not the drawn bubble). The arrow keys nudge the picked item, by ten pixels with Shift. What was placed by hand stays where it is when the texts or the look change, and the things placed automatically keep off it. `Place automatically` under a picked frame (or Delete) hands that item back to the script; `Place all automatically` at the top does it for all of them. Texts inside the bubbles found in the art are always fitted by the script.
 
+**Areas drawn by hand.** Under `Areas drawn by hand` pick `Outline` (draw a closed outline; it is filled) or `Brush` (paint; the width is set by the slider) and draw on the image. Each area gets a card in the panel:
+
+| Area | What happens in it |
+|---|---|
+| `Text` | Its text is fitted into the area like into a bubble: as large as the shape allows. `On the art` draws it with the caption's outline; `Light bubble` and `Dark bubble` paint the area as a bubble first, so any shape you draw becomes a bubble. |
+| `Effect` | Its text is one sound effect, sized to the area and put in its middle. |
+| `Keep out` | Nothing that the script places (caption, drawn bubble, sound effects) lands there. |
+
+Drawing adds to the picked area; `New area` starts another one. Everything the script places keeps off every area. Areas belong to the image they were drawn on. Set the tool back to `Off` to move things by their frames again.
+
 The status line under the image says how many bubbles were found and filled. The look is remembered in `user_settings.json`. The texts are remembered only while `Letter every new image` is on, since the host then needs them.
 
 The editor is a React page in `ui/`; its build in `ui/dist` is part of the repo, so Node is not needed to use the extension. To change the page: `npm install` and `npm run build` in `ui/`.
@@ -82,7 +92,7 @@ Yo", caption="Last day of summer.", sfx="SPLASH")
 result = draw(image, scene)
 ```
 
-`arrange()` decides what goes where and draws nothing; its `pins` argument fixes the place, size or tilt of single items (`{"caption": {"cx": 300, "cy": 500}, "sfx:0": {"size": 120, "rotation": -20}}`). The scene it returns is a dict of plain values, so it survives a trip through JSON: `scene["items"]` lists the texts in the bubbles found in the art (`bubble`), the caption (`caption`) or the bubble drawn for it (`balloon`), and the sound effects (`sfx`), each with its text, its font size and its place in pixels. `draw()` draws a scene onto the image it was made for.
+`arrange()` decides what goes where and draws nothing; its `pins` argument fixes the place, size or tilt of single items (`{"caption": {"cx": 300, "cy": 500}, "sfx:0": {"size": 120, "rotation": -20}}`). Its `regions` argument takes areas drawn by hand: polygons or brush strokes with a text to fit into them, or to keep everything out of. The scene it returns is a dict of plain values, so it survives a trip through JSON: `scene["items"]` lists the texts in the bubbles found in the art (`bubble`), the caption (`caption`) or the bubble drawn for it (`balloon`), and the sound effects (`sfx`), each with its text, its font size and its place in pixels. `draw()` draws a scene onto the image it was made for.
 
 ### Text
 

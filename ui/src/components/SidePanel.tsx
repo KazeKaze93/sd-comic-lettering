@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { LookOf } from '../types'
+import type { LookOf, Region, RegionKind, Tool } from '../types'
 import { Button, Label, Segmented, Select, Slider, TextInput, Toggle } from './controls'
 
 type FieldName = 'text' | 'caption' | 'sfx'
@@ -47,6 +47,88 @@ const CUSTOM_MOOD: SliderSpec[] = [
   { key: 'line_spacing', label: 'Line spacing', min: 0.7, max: 1.6, step: 0.02 },
   { key: 'seed', label: 'Wobble pattern number', min: 0, max: 999, step: 1 },
 ]
+
+const TOOLS: { value: Tool; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'lasso', label: 'Outline' },
+  { value: 'brush', label: 'Brush' },
+]
+const KINDS: { value: RegionKind; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'sfx', label: 'Effect' },
+  { value: 'keepout', label: 'Keep out' },
+]
+const FILLS: { value: Region['fill']; label: string }[] = [
+  { value: 'none', label: 'On the art' },
+  { value: 'light', label: 'Light bubble' },
+  { value: 'dark', label: 'Dark bubble' },
+]
+
+/** The drawing tools and the areas drawn with them. */
+function AreasPanel() {
+  const tool = useStore((state) => state.tool)
+  const brush = useStore((state) => state.brush)
+  const picked = useStore((state) => state.region)
+  const regions = useStore((state) => state.slots[state.source]?.regions)
+  const { setTool, setBrush, pickRegion, changeRegion, removeRegion, render } = useStore.getState()
+  if (!regions) return null
+  return (
+    <Section title="Areas drawn by hand">
+      <Segmented value={tool} options={TOOLS} onChange={setTool} />
+      {tool === 'brush' && (
+        <Slider
+          label="Brush width, % of the image"
+          value={Math.round(brush * 100)}
+          min={1}
+          max={30}
+          step={1}
+          onChange={(value) => setBrush(value / 100)}
+          onCommit={() => undefined}
+        />
+      )}
+      <p className="text-[11px] leading-snug text-cl-muted">
+        {tool === 'off'
+          ? 'Pick Outline or Brush and draw on the image. Text or an effect is fitted into the area; a keep-out area is left free.'
+          : picked
+            ? 'Drawing adds to the picked area. Press New area to start another.'
+            : 'Drawing starts a new area.'}
+      </p>
+      {regions.map((region, index) => (
+        <div
+          key={region.id}
+          onClick={() => pickRegion(region.id)}
+          className={`flex flex-col gap-1.5 rounded border p-2 ${region.id === picked ? 'border-cl-accent' : 'border-cl-border'}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-cl-text">Area {index + 1}</span>
+            <Button variant="quiet" onClick={() => removeRegion(region.id)}>
+              Delete
+            </Button>
+          </div>
+          <Segmented value={region.kind} options={KINDS} onChange={(kind) => changeRegion(region.id, { kind })} />
+          {region.kind === 'text' && (
+            <Segmented value={region.fill} options={FILLS} onChange={(fill) => changeRegion(region.id, { fill })} />
+          )}
+          {region.kind !== 'keepout' && (
+            <textarea
+              value={region.text}
+              rows={2}
+              spellCheck={false}
+              placeholder={region.kind === 'sfx' ? 'One effect: BOOM, THUD x3' : 'Text for this area'}
+              onChange={(event) => changeRegion(region.id, { text: event.target.value }, false)}
+              onBlur={() => void render()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void render()
+              }}
+              className="w-full resize-y rounded border border-cl-border bg-cl-raised px-2 py-1 text-sm placeholder:text-cl-muted"
+            />
+          )}
+        </div>
+      ))}
+      {picked && tool !== 'off' && <Button onClick={() => pickRegion(null)}>New area</Button>}
+    </Section>
+  )
+}
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -246,6 +328,8 @@ export function SidePanel() {
         ))}
         <span className="ml-1 text-[11px] text-cl-muted">*word* makes a word bigger</span>
       </div>
+
+      <AreasPanel />
 
       <Section title="Look">
         <Segmented value={lookOf} options={looks} onChange={setLookOf} />

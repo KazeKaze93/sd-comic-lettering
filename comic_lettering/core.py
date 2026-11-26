@@ -4,10 +4,10 @@ import copy
 import math
 import random
 import re
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from scipy import ndimage as ndi
 
 from .detect import detect_bubbles, edge_energy, erase_letters, luminance
@@ -51,8 +51,8 @@ def letter(image, text="", caption="", spill=True, placement="auto", style=None,
 
 
 def arrange(image, text="", caption="", spill=True, placement="auto", style=None, erase=True,
-            white_threshold=120, rtl=False, numbers=False, sfx="", pins=None):
-    # type: (Image.Image, str, str, bool, str, Style, bool, int, bool, bool, str, Dict) -> Dict
+            white_threshold=120, rtl=False, numbers=False, sfx="", pins=None, regions=None):
+    # type: (Image.Image, str, str, bool, str, Style, bool, int, bool, bool, str, Dict, List) -> Dict
     """Decide what goes where, without drawing anything. Arguments as for letter().
 
     pins: what was set by hand, by item id ("caption" for the caption or its balloon,
@@ -61,6 +61,16 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     Whatever a pin leaves out is still decided here. Things placed after a pinned item
     keep off it where it now stands. The caption's "reach" and the balloon's "tall", as
     the scene reported them, keep the line breaks the item had when it was pinned.
+
+    regions: areas drawn on the image by hand, a list of
+      {"id", "kind", "shapes", "text", "fill"}
+    kind "text": the text is fitted into the area as into a bubble; with fill "light" or
+    "dark" the area is painted as a bubble first, with "none" the text gets the caption's
+    outline. kind "sfx": the text is a sound effect, sized to the area and put in its
+    middle. kind "keepout": nothing that is placed automatically may land there.
+    shapes: {"type": "polygon", "points": [[x, y], ...]} for an outline that is closed and
+    filled, {"type": "stroke", "points": [...], "width": w} for a brush stroke; a region is
+    all of its shapes together. Whatever is placed automatically keeps off every region.
 
     Returns the scene: a dict of plain values (it survives a trip through JSON) that
     draw() turns into the lettered image. scene["items"] lists what is drawn, in order:
@@ -79,13 +89,15 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     items = []
     scene = {"version": 1, "size": [image.width, image.height], "style": dict(vars(style)),
              "white_threshold": int(white_threshold), "rtl": bool(rtl), "erase": bool(erase),
-             "people": False, "empty": False, "bubbles": [], "items": items, "info": info}
+             "people": False, "empty": False, "bubbles": [], "items": items, "info": info,
+             "regions": _regions(regions)}
+    areas = scene["regions"]
     lines = [line.strip() for line in (text or "").replace("\r", "").split("\n")]
     while lines and not lines[-1]:
         lines.pop()
     caption = (caption or "").replace("\r", "").strip()
     effects = [line.strip() for line in (sfx or "").replace("\r", "").split("\n") if line.strip()]
-    if not lines and not caption and not numbers and not effects:
+    if not lines and not caption and not numbers and not effects and not any(area["text"] for area in areas):
         scene["empty"] = True  # nothing asked for: draw() hands the image back untouched
         return scene
     rgb = np.array(image.convert("RGB"))
@@ -127,6 +139,19 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
         info["characters"] = known
     energy = _energy(rgb) if (effects or (free and style.caption_bubble != "none")) else None
     pins = pins if isinstance(pins, dict) else {}
+    masks = _region_masks(areas, rgb.shape[1], rgb.shape[0], static, precious)
+    held = []  # sound effects that belong to a region: (text, pin)
+    for number, (area, mask) in enumerate(zip(areas, masks)):
+        if numbers or not area["text"] or not mask.any():
+            continue
+        if area["kind"] == "text":
+            item = _place_region(height, area, mask, number, style, palette(style, "caption", accent))
+            items.append(item)
+            info["font_sizes"].append(item["size"])
+            info["regions"] = info.get("regions", 0) + 1
+        elif area["kind"] == "sfx":
+            held.append((area, _region_pin(area["text"], mask)))
+            info["regions"] = info.get("regions", 0) + 1
     caption_box = None
     if free:
         item = _place_free(rgb, "\n".join(free), placement, style, static,
@@ -135,11 +160,21 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
         caption_box = item["box"]
         info["free_text"] = True
         info["font_sizes"].append(item["size"])
-    if effects:
+    if effects or held:
         taken = np.zeros(rgb.shape[:2], dtype=bool)  # the caption and the effects placed so far
         _reserve(taken, caption_box)
+    if effects:
         items.extend(_place_sfx(rgb, effects, static, taken, style, energy, precious, pins))
         info["sfx"] = len(effects)
+    if held:
+        # Effects of the regions come after the others and are numbered apart from them,
+        # so adding or removing an ordinary effect does not change how these are drawn.
+        own = dict(("sfx:%d" % (REGION_SFX + n), pin) for n, (_, pin) in enumerate(held))
+        placed = _place_sfx(rgb, [area["text"] for area, _ in held], static, taken, style, energy, precious, own,
+                            REGION_SFX)
+        for item, (area, _) in zip(placed, held):
+            item["region"] = area["id"]
+        items.extend(placed)
     return scene
 
 
@@ -170,9 +205,14 @@ def draw(image, scene):
                              item["cx"], item["cy"])
     # The marks around a text keep off the same things the placement kept off.
     static, precious, _ = _obstacles(rgb, bubbles, scene["people"])
+    areas = scene.get("regions") or []
+    masks = _region_masks(areas, width, height, static, precious)
     taken = np.zeros(rgb.shape[:2], dtype=bool)
     for item in items:
-        if item["kind"] == "caption":
+        if item["kind"] == "region":
+            if item["region"] < len(masks):
+                out = _draw_region(out, item, masks[item["region"]], style, accent)
+        elif item["kind"] == "caption":
             out = _draw_caption(out, item, style, palette(style, "caption", accent), precious)
             _reserve(taken, item["box"])
         elif item["kind"] == "balloon":
@@ -182,6 +222,130 @@ def draw(image, scene):
             out = _draw_sfx(out, item, static, taken, style, palette(style, "sfx", accent), width, height)
             _reserve(taken, item["room"])
     return out.convert("RGB")
+
+
+REGION_SFX = 1000  # the sound effects of regions are numbered from here
+
+
+def _regions(regions):
+    """The regions with only what they may carry; see arrange()."""
+    clean = []
+    for number, region in enumerate(regions if isinstance(regions, list) else []):
+        if not isinstance(region, dict) or region.get("kind") not in ("text", "sfx", "keepout"):
+            continue
+        shapes = []
+        for shape in region.get("shapes") if isinstance(region.get("shapes"), list) else []:
+            if not isinstance(shape, dict) or not isinstance(shape.get("points"), list):
+                continue
+            points = [[float(p[0]), float(p[1])] for p in shape["points"][:4000]
+                      if isinstance(p, (list, tuple)) and len(p) == 2
+                      and all(isinstance(v, (int, float)) and not isinstance(v, bool) and v == v for v in p)]
+            if shape.get("type") == "polygon" and len(points) >= 3:
+                shapes.append({"type": "polygon", "points": points})
+            elif shape.get("type") == "stroke" and points:
+                wide = shape.get("width")
+                wide = float(wide) if isinstance(wide, (int, float)) and not isinstance(wide, bool) and wide == wide else 20.0
+                shapes.append({"type": "stroke", "points": points, "width": max(2.0, min(2000.0, wide))})
+        if not shapes:
+            continue
+        kind = region["kind"]
+        text = region.get("text") if isinstance(region.get("text"), str) else ""
+        clean.append({"id": str(region.get("id") or number)[:40], "kind": kind, "shapes": shapes[:200],
+                      "text": "" if kind == "keepout" else text.replace("\r", "").strip(),
+                      "fill": region.get("fill") if kind == "text" and region.get("fill") in ("light", "dark") else "none"})
+        if len(clean) >= 40:
+            break
+    return clean
+
+
+def _region_masks(areas, width, height, static=None, precious=None):
+    """The area of every region as a mask. Each is also added to static and precious,
+    when given: whatever is placed automatically keeps off the regions."""
+    masks = []
+    for area in areas:
+        canvas = Image.new("L", (width, height), 0)
+        pen = ImageDraw.Draw(canvas)
+        for shape in area["shapes"]:
+            points = [(x, y) for x, y in shape["points"]]
+            if shape["type"] == "polygon":
+                pen.polygon(points, fill=255)
+            else:
+                wide = shape["width"]
+                if len(points) > 1:
+                    pen.line(points, fill=255, width=int(round(wide)))
+                for x, y in points:  # round ends and joints
+                    pen.ellipse((x - wide / 2.0, y - wide / 2.0, x + wide / 2.0, y + wide / 2.0), fill=255)
+        # A hand is not steady: round the outline off a little.
+        soft = canvas.filter(ImageFilter.GaussianBlur(max(1.5, 0.004 * min(width, height))))
+        mask = np.asarray(soft) > 127
+        masks.append(mask)
+        if static is not None:
+            static |= mask
+        if precious is not None:
+            precious |= mask
+    return masks
+
+
+class _Area(object):
+    """A region in the form the bubble fitter takes: a mask cut to its box, and where the box is."""
+
+    def __init__(self, mask):
+        ys, xs = np.nonzero(mask)
+        self.y0, self.x0 = int(ys.min()), int(xs.min())
+        self.body = mask[self.y0:int(ys.max()) + 1, self.x0:int(xs.max()) + 1]
+
+
+def _region_look(style, filled, pal):
+    """Text in a painted region is bubble text; on bare art it is caption text."""
+    look = voice(style, "bubble") if filled else _caption_look(style, pal)
+    look.bubble_size = 30.0  # as large as the area allows
+    return look
+
+
+def _place_region(height, area, mask, number, style, pal):
+    """The scene item for a text fitted into a region."""
+    filled = area["fill"] != "none"
+    look = _region_look(style, filled, pal)
+    lines, size, cx, cy = _fit_text(height, _Area(mask), parse_text(area["text"], style.uppercase), look, False)
+    return {"kind": "region", "id": "region:%s" % area["id"], "region": number, "text": area["text"],
+            "lines": _plain(lines), "size": int(size), "cx": float(cx), "cy": float(cy), "fill": area["fill"]}
+
+
+def _draw_region(image, item, mask, style, accent):
+    size = item["size"]
+    if item["fill"] == "none":
+        pal = palette(style, "caption", accent)
+        look = _region_look(style, False, pal)
+        paint = _paint(style, "caption", pal, size, look.font)
+        return paste_centered(image, render_block(_lines(item), size, look, paint), item["cx"], item["cy"])
+    dark = item["fill"] == "dark"
+    body, line = ((14, 14, 18), (245, 245, 245)) if dark else ((250, 250, 250), (15, 15, 15))
+    wide = max(2, int(round(0.004 * image.height)))
+    edge = Image.fromarray((ndi.binary_dilation(mask, iterations=wide) * 255).astype(np.uint8))
+    fill = Image.fromarray((mask * 255).astype(np.uint8))
+    soft = ImageFilter.GaussianBlur(0.8)
+    painted = Image.alpha_composite(_solid(line, edge.filter(soft)), _solid(body, fill.filter(soft)))
+    image = Image.alpha_composite(image.convert("RGBA"), painted)
+    pal = palette(style, "bubble", accent)
+    plain = (255, 255, 255) if dark else (0, 0, 0)
+    ink = (pal["fill"] if dark else pal["ink"]) if pal else _own_color(style, "bubble", style.text_color, plain)
+    look = _region_look(style, True, None)
+    return paste_centered(image, render_block(_lines(item), size, look, Paint(ink)), item["cx"], item["cy"])
+
+
+def _sfx_units(word):
+    """The width of a sound effect in letters, estimated without a font."""
+    return sum(0.95 if ch in SYMBOLS else 0.3 if ch.isspace() else 0.5 for ch in word.replace("*", ""))
+
+
+def _region_pin(effect, mask):
+    """The pin that puts a sound effect into a region: its middle, and the size that fills it."""
+    ys, xs = np.nonzero(mask)
+    box_w, box_h = xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+    word, count = _repeat(effect)
+    size = min(box_w / (_sfx_units(word) + 0.8), box_h / (1.4 if count == 1 else 0.75 * count + 0.8))
+    cy, cx = ndi.center_of_mass(mask)
+    return {"cx": float(cx), "cy": float(cy), "size": max(10, int(size * 0.9))}
 
 
 def _pin(pin):
@@ -938,13 +1102,16 @@ def _repeat(effect):
     return (repeat.group(1) if repeat and count > 1 else effect), count
 
 
-def _place_sfx(rgb, effects, static, taken, style, energy, precious=None, pins=None):
-    """The scene items for the sound effects. `taken` gains the room of each one."""
+def _place_sfx(rgb, effects, static, taken, style, energy, precious=None, pins=None, first=0):
+    """The scene items for the sound effects. `taken` gains the room of each one.
+
+    first: the number of the first effect; the effects of regions are numbered apart.
+    """
     height, width = rgb.shape[:2]
     static_table = _integral(static)
     heavy = _integral(precious) if precious is not None else None
     items = []
-    for index, effect in enumerate(effects):
+    for index, effect in enumerate(effects, first):
         # Two random streams, both independent of the look: one for the size and tilt,
         # one for the place. Changing fonts, colors or moods then moves nothing.
         rng = random.Random(style.sfx_seed * 1000003 + index)
@@ -958,7 +1125,7 @@ def _place_sfx(rgb, effects, static, taken, style, energy, precious=None, pins=N
             size = max(10, pin["size"])
         # The place is chosen for a nominal box that depends on the text and size only.
         # Its width is estimated per character, not measured, so the font does not matter.
-        units = sum(0.95 if ch in SYMBOLS else 0.3 if ch.isspace() else 0.5 for ch in word.replace("*", ""))
+        units = _sfx_units(word)
         # An effect that would land on a character is tried smaller first. Like the place,
         # the size then depends on the image and the text only.
         taken_table = _integral(taken)

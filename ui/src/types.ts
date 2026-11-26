@@ -19,7 +19,7 @@ export interface Options {
 
 /** One thing the server drew, with its place in image pixels. */
 export interface SceneItem {
-  kind: 'bubble' | 'caption' | 'balloon' | 'sfx'
+  kind: 'bubble' | 'caption' | 'balloon' | 'sfx' | 'region'
   text: string
   size: number
   bubble?: number
@@ -35,7 +35,27 @@ export interface SceneItem {
   rotation?: number
   reach?: number
   tall?: boolean
+  /** On a sound effect that belongs to an area: the area's id. Its place is the area's. */
+  region?: string | number
 }
+
+/** One stroke of the hand: an outline that is closed and filled, or a brush stroke. Points are image pixels. */
+export type Shape =
+  | { type: 'polygon'; points: [number, number][] }
+  | { type: 'stroke'; points: [number, number][]; width: number }
+
+export type RegionKind = 'text' | 'sfx' | 'keepout'
+
+/** An area drawn on the image: text or an effect is fitted into it, or everything keeps out of it. */
+export interface Region {
+  id: string
+  kind: RegionKind
+  shapes: Shape[]
+  text: string
+  fill: 'none' | 'light' | 'dark'
+}
+
+export type Tool = 'off' | 'lasso' | 'brush'
 
 /** What was set by hand for one item; the server decides whatever is left out. */
 export interface Pin {
@@ -75,6 +95,8 @@ export interface Slot {
   warning: boolean
   /** Places, sizes and tilts set by hand, by item id. */
   pins: Record<string, Pin>
+  /** Areas drawn by hand. */
+  regions: Region[]
 }
 
 /** What the host page tells the editor about the image in its gallery. */

@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { Pin, SceneItem, Slot } from '../types'
+import type { Pin, Region, SceneItem, Shape, Slot } from '../types'
+
+/** Keep receiving the pointer while it is down, where the browser allows it. */
+function capture(event: ReactPointerEvent) {
+  try {
+    event.currentTarget.setPointerCapture(event.pointerId)
+  } catch {
+    // A pointer the browser does not know (a scripted one): the drag still works inside the element.
+  }
+}
 
 /** The largest size with the image's proportions that fits the element. */
 function useFit(width: number, height: number) {
@@ -58,6 +67,112 @@ const NAMES: Record<SceneItem['kind'], string> = {
   caption: 'caption',
   balloon: 'drawn bubble',
   sfx: 'effect',
+  region: 'area',
+}
+
+const TINTS: Record<Region['kind'], string> = {
+  text: 'rgb(var(--cl-accent))',
+  sfx: 'rgb(var(--cl-warning))',
+  keepout: 'rgb(var(--cl-danger))',
+}
+
+function pathOf(points: [number, number][], closed: boolean) {
+  return points.map(([x, y], index) => `${index ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ') + (closed ? ' Z' : '')
+}
+
+function ShapePath({ shape, color, strong }: { shape: Shape; color: string; strong: boolean }) {
+  if (shape.type === 'polygon')
+    return (
+      <path
+        d={pathOf(shape.points, true)}
+        fill={color}
+        fillOpacity={strong ? 0.3 : 0.18}
+        stroke={color}
+        strokeWidth={strong ? 2.5 : 1.5}
+        vectorEffect="non-scaling-stroke"
+      />
+    )
+  return (
+    <path
+      d={pathOf(shape.points.length > 1 ? shape.points : [shape.points[0], shape.points[0]], false)}
+      fill="none"
+      stroke={color}
+      strokeOpacity={strong ? 0.4 : 0.25}
+      strokeWidth={shape.width}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  )
+}
+
+/** The areas drawn by hand, tinted by what they are for; the one being drawn into stands out. */
+function Areas({ slot, drawing }: { slot: Slot; drawing: Shape | null }) {
+  const picked = useStore((state) => state.region)
+  return (
+    <svg viewBox={`0 0 ${slot.width} ${slot.height}`} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+      {slot.regions.map((region) =>
+        region.shapes.map((shape, index) => (
+          <ShapePath key={`${region.id}-${index}`} shape={shape} color={TINTS[region.kind]} strong={region.id === picked} />
+        )),
+      )}
+      {drawing && <ShapePath shape={drawing} color="rgb(var(--cl-text))" strong />}
+    </svg>
+  )
+}
+
+/** Catches the pointer while a drawing tool is on and turns each drag into a shape. */
+function DrawLayer({ slot, scale, onDraw }: { slot: Slot; scale: number; onDraw: (shape: Shape | null) => void }) {
+  const tool = useStore((state) => state.tool)
+  const brush = useStore((state) => state.brush)
+  const points = useRef<[number, number][] | null>(null)
+  const width = Math.max(4, Math.round(brush * Math.min(slot.width, slot.height)))
+
+  const at = (event: ReactPointerEvent): [number, number] => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const x = Math.min(slot.width, Math.max(0, (event.clientX - rect.left) / scale))
+    const y = Math.min(slot.height, Math.max(0, (event.clientY - rect.top) / scale))
+    return [Math.round(x * 10) / 10, Math.round(y * 10) / 10]
+  }
+  const shapeOf = (list: [number, number][]): Shape =>
+    tool === 'brush' ? { type: 'stroke', points: list, width } : { type: 'polygon', points: list }
+
+  return (
+    <div
+      className="absolute inset-0 touch-none"
+      style={{ cursor: 'crosshair' }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        event.stopPropagation()
+        capture(event)
+        points.current = [at(event)]
+        onDraw(shapeOf(points.current))
+      }}
+      onPointerMove={(event) => {
+        const list = points.current
+        if (!list) return
+        const next = at(event)
+        const last = list[list.length - 1]
+        // A point every few screen pixels is plenty.
+        if (Math.hypot(next[0] - last[0], next[1] - last[1]) * scale < 3) return
+        list.push(next)
+        onDraw(shapeOf([...list]))
+      }}
+      onPointerUp={(event) => {
+        const list = points.current
+        points.current = null
+        onDraw(null)
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+        if (!list) return
+        // An outline needs to enclose something; a dab of the brush is enough.
+        if (tool === 'lasso' && list.length < 6) return
+        useStore.getState().addShape(shapeOf(list))
+      }}
+      onPointerCancel={() => {
+        points.current = null
+        onDraw(null)
+      }}
+    />
+  )
 }
 
 /** Frames of the bubbles found in the art: numbered in reading order, dashed if left empty. */
@@ -145,7 +260,7 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
     if (event.button !== 0) return
     event.stopPropagation()
     event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
+    capture(event)
     gesture.current = { kind, x: event.clientX, y: event.clientY, moved: false }
     select(id)
   }
@@ -269,6 +384,8 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
 function Picture({ slot }: { slot: Slot }) {
   const showOriginal = useStore((state) => state.showOriginal)
   const showFrames = useStore((state) => state.showFrames)
+  const tool = useStore((state) => state.tool)
+  const [drawing, setDrawing] = useState<Shape | null>(null)
   const { ref, size } = useFit(slot.width, slot.height)
   const which = showOriginal || slot.empty ? 'original' : 'result'
   const scale = size.width / slot.width
@@ -285,13 +402,14 @@ function Picture({ slot }: { slot: Slot }) {
           {showFrames && !showOriginal && (
             <>
               <FoundBubbles slot={slot} scale={scale} />
-              {slot.items
-                .filter((item) => item.id)
-                .map((item) => (
-                  <Handle key={item.id} item={item} slot={slot} scale={scale} />
-                ))}
+              <Areas slot={slot} drawing={drawing} />
+              {tool === 'off' &&
+                slot.items
+                  .filter((item) => item.id && item.kind !== 'region' && item.region === undefined)
+                  .map((item) => <Handle key={item.id} item={item} slot={slot} scale={scale} />)}
             </>
           )}
+          {tool !== 'off' && !showOriginal && <DrawLayer slot={slot} scale={scale} onDraw={setDrawing} />}
         </div>
       )}
     </div>
