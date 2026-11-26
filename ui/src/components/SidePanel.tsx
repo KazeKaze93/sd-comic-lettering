@@ -51,12 +51,48 @@ const CUSTOM_MOOD: SliderSpec[] = [
 /** How many mark buttons show before "All marks" is pressed. */
 const FEW_MARKS = 8
 
-const TOOLS: { value: Tool; label: string }[] = [
-  { value: 'off', label: 'Off' },
-  { value: 'lasso', label: 'Outline' },
-  { value: 'brush', label: 'Brush' },
-  { value: 'eraser', label: 'Eraser' },
+/** The tools as a paint program shows them: an icon each. Paths are drawn on a 16 by 16 grid. */
+const TOOLS: { value: Tool; label: string; icon: ReactNode }[] = [
+  { value: 'off', label: 'Move things (no drawing)', icon: <path d="M4 2l8 6-3.4.8L10.8 13l-1.7.8-2.3-4.2L4 12z" /> },
+  {
+    value: 'lasso',
+    label: 'Outline: draw around an area',
+    icon: (
+      <>
+        <ellipse cx="8" cy="6.5" rx="6" ry="4.5" strokeDasharray="2.6 1.8" />
+        <path d="M5.2 10.5c-1.2 1.6-.2 3.4 1.6 3.4" />
+      </>
+    ),
+  },
+  {
+    value: 'brush',
+    label: 'Brush: paint an area',
+    icon: (
+      <>
+        <path d="M10.5 2.5l3 3-5.6 5.6-3-3z" />
+        <path d="M4.6 9.2c-1.6.5-2.2 2-2.2 4.2 2.2 0 3.8-.5 4.3-2.1" />
+      </>
+    ),
+  },
+  {
+    value: 'eraser',
+    label: 'Eraser: rub out what was painted',
+    icon: (
+      <>
+        <path d="M2.8 10.2l6.4-6.4 4 4-6.4 6.4H4.6z" />
+        <path d="M6.4 6.6l4 4M2.5 14.2h11" />
+      </>
+    ),
+  },
 ]
+
+function Icon({ children }: { children: ReactNode }) {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  )
+}
 const KINDS: { value: RegionKind; label: string }[] = [
   { value: 'text', label: 'Text' },
   { value: 'sfx', label: 'Effect' },
@@ -78,7 +114,36 @@ function AreasPanel() {
   if (!regions) return null
   return (
     <Section title="Areas drawn by hand">
-      <Segmented value={tool} options={TOOLS} onChange={setTool} />
+      <div className="flex items-center gap-1" role="toolbar" aria-label="Drawing tools">
+        {TOOLS.map((entry) => (
+          <button
+            key={entry.value}
+            type="button"
+            title={entry.label}
+            aria-label={entry.label}
+            aria-pressed={tool === entry.value}
+            onClick={() => setTool(entry.value)}
+            className={`flex h-8 w-8 items-center justify-center rounded border ${
+              tool === entry.value
+                ? 'border-cl-accent bg-cl-accent/20 text-cl-accent-text'
+                : 'border-cl-border bg-cl-raised text-cl-muted hover:border-cl-muted hover:text-cl-text'
+            }`}
+          >
+            <Icon>{entry.icon}</Icon>
+          </button>
+        ))}
+        <span className="flex-1" />
+        <Button
+          disabled={!picked}
+          onClick={() => pickRegion(null)}
+          title="The next thing you draw starts a new area, even on top of this one"
+        >
+          <Icon>
+            <path d="M8 3v10M3 8h10" />
+          </Icon>
+          New area
+        </Button>
+      </div>
       {(tool === 'brush' || tool === 'eraser') && (
         <Slider
           label={tool === 'eraser' ? 'Eraser width, % of the image' : 'Brush width, % of the image'}
@@ -92,14 +157,10 @@ function AreasPanel() {
       )}
       <p className="text-[11px] leading-snug text-cl-muted">
         {tool === 'off'
-          ? 'Pick Outline or Brush and draw on the image. Text or an effect is fitted into the area; a keep-out area is left free. Untick Frames and areas at the top to see the result without the tint.'
+          ? 'Pick the outline or the brush and draw on the image. Text or an effect is fitted into the area; a keep-out area is left free. Untick Frames and areas at the top to see the result without the tint.'
           : tool === 'eraser'
-            ? picked
-              ? 'The eraser rubs out the picked area.'
-              : 'The eraser rubs out every area it passes over.'
-            : picked
-              ? 'Drawing adds to the picked area. Press New area to start another.'
-              : 'Drawing starts a new area.'}
+            ? 'The eraser rubs out whatever it passes over.'
+            : 'Paint that touches the picked area adds to it. Paint anywhere else starts a new area with its own text.'}
       </p>
       {regions.map((region, index) => (
         <div
@@ -181,9 +242,6 @@ function AreasPanel() {
           )}
         </div>
       ))}
-      {picked && tool !== 'off' && (
-        <Button onClick={() => pickRegion(null)}>{tool === 'eraser' ? 'Erase in all areas' : 'New area'}</Button>
-      )}
     </Section>
   )
 }

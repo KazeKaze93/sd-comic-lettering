@@ -44,7 +44,7 @@ function TopBar() {
         <Button
           disabled={!slot}
           onClick={() => slot && tellHost({ type: 'SDCL_TO_GALLERY', session: slot.session })}
-          title="Show this image in the txt2img gallery"
+          title="Show this image in the gallery it came from"
         >
           To gallery
         </Button>

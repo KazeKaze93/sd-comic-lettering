@@ -86,6 +86,41 @@ function slotOf(created: NewSession): Slot {
 
 let regionCount = 0
 
+/** The box around what a region or a shape paints: [x0, y0, x1, y1]; null if it paints nothing. */
+function boxOf(shapes: Shape[]): [number, number, number, number] | null {
+  let box: [number, number, number, number] | null = null
+  for (const shape of shapes) {
+    if (shape.type === 'erase') continue
+    const pad = shape.type === 'stroke' ? shape.width / 2 : 0
+    for (const [x, y] of shape.points) {
+      box = box
+        ? [Math.min(box[0], x - pad), Math.min(box[1], y - pad), Math.max(box[2], x + pad), Math.max(box[3], y + pad)]
+        : [x - pad, y - pad, x + pad, y + pad]
+    }
+  }
+  return box
+}
+
+/** Is this one sweep of the brush along a line, not a scribble that fills a patch? A sweep is
+ * not much longer than the box around it is across; a scribble goes back and forth inside it. */
+function isLine(shape: Shape) {
+  if (shape.type !== 'stroke' || shape.points.length < 2) return false
+  let length = 0
+  for (let index = 1; index < shape.points.length; index += 1) {
+    length += Math.hypot(shape.points[index][0] - shape.points[index - 1][0], shape.points[index][1] - shape.points[index - 1][1])
+  }
+  const box = boxOf([{ ...shape, width: 0 }])
+  if (!box) return false
+  return length <= 1.8 * Math.hypot(box[2] - box[0], box[3] - box[1])
+}
+
+/** Does a new shape touch what a region already paints? Judged by their boxes. */
+function touches(region: Region, shape: Shape) {
+  const a = boxOf(region.shapes)
+  const b = boxOf([shape])
+  return !!a && !!b && a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3]
+}
+
 export const useStore = create<State>((set, get) => {
   /** Remember the look and what is lettered onto new images, a moment after the last change. */
   const persist = () => {
@@ -263,16 +298,21 @@ export const useStore = create<State>((set, get) => {
       let regions: Region[]
       let id = state.region
       if (shape.type === 'erase') {
-        // The eraser works on the picked area, or on all of them when none is picked.
+        // The eraser rubs out whatever it passes over, in every area, as in a paint program.
         if (!slot.regions.length) return
-        regions = slot.regions.map((region) => (!picked || region === picked ? { ...region, shapes: [...region.shapes, shape] } : region))
-      } else if (picked) {
-        regions = slot.regions.map((region) => (region === picked ? { ...region, shapes: [...region.shapes, shape] } : region))
+        regions = slot.regions.map((region) => (touches(region, { ...shape, type: 'stroke' }) ? { ...region, shapes: [...region.shapes, shape] } : region))
+      } else if (picked && touches(picked, shape)) {
+        // More paint on the picked area. An area painted in several goes is a shape to
+        // fill, not a line to write along.
+        regions = slot.regions.map((region) =>
+          region === picked ? { ...region, shapes: [...region.shapes, shape], follow: false } : region,
+        )
       } else {
+        // Paint away from the picked area starts a new one: one area per bubble, each with its own text.
         regionCount += 1
         id = `a${Date.now().toString(36)}${regionCount}`
         // What is painted with the brush is a line to write along; an outline is a shape to fill.
-        regions = [...slot.regions, { id, kind: 'text', shapes: [shape], text: '', fill: 'none', follow: shape.type === 'stroke' }]
+        regions = [...slot.regions, { id, kind: 'text', shapes: [shape], text: '', fill: 'none', follow: isLine(shape) }]
       }
       set({ region: id, slots: { ...state.slots, [state.source]: { ...slot, regions } } })
       void get().render()

@@ -51,23 +51,25 @@ class ComicLetteringScript(scripts.Script):
         return []
 
     def after_component(self, component, **kwargs):
-        if self.tab == "txt2img" and kwargs.get("elem_id") == "txt2img_gallery":
+        if self.tab and kwargs.get("elem_id") == self.tab + "_gallery":
             self.gallery = component
 
     def before_component(self, component, **kwargs):
-        # The button goes between the gallery buttons and the generation info of txt2img.
-        if self.tab != "txt2img" or self.placed or kwargs.get("elem_id") != "html_info_txt2img":
+        # The button goes between the gallery buttons and the generation info of the tab.
+        # The page script adds a second way in: an icon in the row of tools under Generate.
+        if not self.tab or self.placed or kwargs.get("elem_id") != "html_info_" + self.tab:
             return
         self.placed = True
-        with gr.Row(elem_id="comic_lettering_bar"):
-            open_button = gr.Button("Comic Lettering", elem_id="comic_lettering_open", size="sm")
+        with gr.Row(elem_id="comic_lettering_bar_" + self.tab):
+            open_button = gr.Button("Comic Lettering", elem_id="comic_lettering_open_" + self.tab, size="sm")
             # Clicked by the page script when the editor sends its image to the gallery;
             # the session id comes through _js, the textbox only gives it a slot.
             session = gr.Textbox(visible=False)
-            send_button = gr.Button("to gallery", visible=False, elem_id="comic_lettering_to_gallery")
+            send_button = gr.Button("to gallery", visible=False, elem_id="comic_lettering_to_gallery_" + self.tab)
         for part in (open_button, session, send_button):
             part.do_not_save_to_config = True
-        open_button.click(fn=None, inputs=[], outputs=[], _js="function(){ sdclOpen('txt2img'); return []; }")
+        open_button.click(fn=None, inputs=[], outputs=[],
+                          _js="function(){ sdclOpen('%s'); return []; }" % self.tab)
         if self.gallery is not None:
             send_button.click(fn=self.to_gallery, inputs=[session], outputs=[self.gallery],
                               _js="function(){ return [window.sdclSession || '']; }", show_progress=False)

@@ -99,6 +99,7 @@ function ShapePath({ shape, color }: { shape: Shape; color: string }) {
 /** The areas drawn by hand, tinted by what they are for; the one being drawn into stands out. */
 function Areas({ slot, drawing }: { slot: Slot; drawing: Shape | null }) {
   const picked = useStore((state) => state.region)
+  const rubbing = drawing && drawing.type === 'erase' ? drawing : null
   return (
     <svg viewBox={`0 0 ${slot.width} ${slot.height}`} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
       {slot.regions.map((region) => (
@@ -108,6 +109,8 @@ function Areas({ slot, drawing }: { slot: Slot; drawing: Shape | null }) {
             {region.shapes.map((shape, index) => (
               <ShapePath key={index} shape={shape} color={shape.type === 'erase' ? 'black' : 'white'} />
             ))}
+            {/* The eraser shows what it takes away while it moves. */}
+            {rubbing && <ShapePath shape={rubbing} color="black" />}
           </mask>
           <rect
             width={slot.width}
@@ -118,9 +121,9 @@ function Areas({ slot, drawing }: { slot: Slot; drawing: Shape | null }) {
           />
         </g>
       ))}
-      {drawing && (
+      {drawing && !rubbing && (
         <g opacity={0.45}>
-          <ShapePath shape={drawing} color={drawing.type === 'erase' ? 'rgb(var(--cl-bg))' : 'rgb(var(--cl-text))'} />
+          <ShapePath shape={drawing} color="rgb(var(--cl-text))" />
         </g>
       )}
     </svg>
@@ -132,7 +135,23 @@ function DrawLayer({ slot, scale, onDraw }: { slot: Slot; scale: number; onDraw:
   const tool = useStore((state) => state.tool)
   const brush = useStore((state) => state.brush)
   const points = useRef<[number, number][] | null>(null)
+  const ring = useRef<HTMLDivElement>(null)
   const width = Math.max(4, Math.round(brush * Math.min(slot.width, slot.height)))
+  const round = tool === 'brush' || tool === 'eraser'
+
+  /** The ring that shows how wide the brush or the eraser is, where the pointer is. */
+  const follow = (event: ReactPointerEvent | null) => {
+    const element = ring.current
+    if (!element) return
+    if (!event) {
+      element.style.display = 'none'
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    element.style.display = 'block'
+    element.style.left = `${event.clientX - rect.left}px`
+    element.style.top = `${event.clientY - rect.top}px`
+  }
 
   const at = (event: ReactPointerEvent): [number, number] => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -149,8 +168,9 @@ function DrawLayer({ slot, scale, onDraw }: { slot: Slot; scale: number; onDraw:
 
   return (
     <div
-      className="absolute inset-0 touch-none"
-      style={{ cursor: 'crosshair' }}
+      className="absolute inset-0 touch-none overflow-hidden"
+      style={{ cursor: round ? 'none' : 'crosshair' }}
+      onPointerLeave={() => follow(null)}
       onPointerDown={(event) => {
         if (event.button !== 0) return
         event.stopPropagation()
@@ -159,6 +179,7 @@ function DrawLayer({ slot, scale, onDraw }: { slot: Slot; scale: number; onDraw:
         onDraw(shapeOf(points.current))
       }}
       onPointerMove={(event) => {
+        if (round) follow(event)
         const list = points.current
         if (!list) return
         const next = at(event)
@@ -182,7 +203,15 @@ function DrawLayer({ slot, scale, onDraw }: { slot: Slot; scale: number; onDraw:
         points.current = null
         onDraw(null)
       }}
-    />
+    >
+      {round && (
+        <div
+          ref={ring}
+          className="pointer-events-none absolute hidden rounded-full border border-white mix-blend-difference"
+          style={{ width: width * scale, height: width * scale, transform: 'translate(-50%, -50%)' }}
+        />
+      )}
+    </div>
   )
 }
 

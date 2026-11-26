@@ -77,7 +77,7 @@
         } else if (data.type === 'SDCL_TO_GALLERY' && typeof data.session === 'string') {
             // The hidden Gradio button reads the session id from here and fills the gallery.
             window.sdclSession = data.session;
-            var button = app().querySelector('#comic_lettering_to_gallery');
+            var button = app().querySelector('#comic_lettering_to_gallery_' + tab);
             if (button) {
                 button.click();
             }
@@ -99,4 +99,75 @@
         overlay.style.display = 'block';
         send();  // the page itself asks again with SDCL_READY once it has loaded
     };
+
+    // An icon in the row of tools under Generate, next to Style Grid's when that is installed.
+    var NS = 'http://www.w3.org/2000/svg';
+
+    function icon() {
+        var svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '1.8');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.setAttribute('aria-hidden', 'true');
+        // A speech bubble with a letter in it.
+        var parts = ['M4 4h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-4.5 4v-4H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
+            'M9.3 13l2.7-6.2 2.7 6.2', 'M10.3 10.9h3.4'];
+        for (var i = 0; i < parts.length; i++) {
+            var path = document.createElementNS(NS, 'path');
+            path.setAttribute('d', parts[i]);
+            svg.appendChild(path);
+        }
+        return svg;
+    }
+
+    function toolButton(which) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.id = 'comic_lettering_tool_' + which;
+        button.className = 'sdcl-tool-btn lg secondary gradio-button tool';
+        button.title = 'Open Comic Lettering';
+        button.setAttribute('aria-label', 'Open Comic Lettering');
+        button.appendChild(icon());
+        button.addEventListener('click', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            window.sdclOpen(which);
+        });
+        return button;
+    }
+
+    // Returns true once the icon stands where it should.
+    function placeTool(which) {
+        var root = app();
+        var tools = root.querySelector('#' + which + '_tools');
+        if (!tools) {
+            return false;
+        }
+        var row = tools.querySelector(':scope > div.form, :scope > div[style*="flex"]') || tools;
+        var button = root.querySelector('#comic_lettering_tool_' + which) || toolButton(which);
+        var neighbour = root.querySelector('#sg_trigger_' + which);
+        if (neighbour && neighbour.parentNode) {
+            if (neighbour.nextSibling !== button) {
+                neighbour.parentNode.insertBefore(button, neighbour.nextSibling);
+            }
+        } else if (button.parentNode !== row) {
+            row.appendChild(button);
+        }
+        return true;
+    }
+
+    // The tools row appears some time after the page script runs, and Style Grid adds its
+    // button later still: look for a while, then stop.
+    var tries = 0;
+    var timer = setInterval(function () {
+        tries += 1;
+        placeTool('txt2img');
+        placeTool('img2img');
+        if (tries > 120) {
+            clearInterval(timer);
+        }
+    }, 500);
 })();
