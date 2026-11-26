@@ -77,7 +77,7 @@ In any field:
 - `♥` (or `<3`), `★`, `✦`, `♪`, `💢`, `💧` are drawn as shapes: heart, star, sparkle, note, anger mark, drop.
 - A word may break after a hyphen (`H-m-m`) when that lets the text be bigger.
 
-A line goes into a bubble only if it fits at a readable size (`bubble_min_size`) in at most eight lines. A bubble too small for it is passed over, and lines left without a bubble are added to the caption. Untick `Text too long for a bubble goes to the caption` under `Fine tuning` to always write into the bubbles, however small, and drop the lines left over.
+A line goes into a bubble only if it fits at a readable size (`bubble_min_size`) in at most eight lines. A bubble too small for it is passed over, and lines left without a bubble are added to the caption; a line that fits no bubble uses up none, so the next line still gets the first free one. Untick `Text too long for a bubble goes to the caption` under `Fine tuning` to always write into the bubbles, however small, and drop the lines left over.
 
 ### Look
 
@@ -130,7 +130,7 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 
 ## Limits
 
-- A bubble is detected as a flat white or gray fill (any brightness above `white_threshold`) enclosed by a dark outline, or a flat near-black fill enclosed by a bright outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, translucent or gradient bubbles and rectangular caption boxes are not found. Dark bubbles are calibrated on a single example: expect misses.
+- A bubble is detected as a flat white, gray or lightly tinted (cream, beige) fill (any brightness above `white_threshold`) enclosed by a dark outline, or a flat near-black fill enclosed by a bright outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, translucent or gradient bubbles and rectangular caption boxes are not found. Dark bubbles are calibrated on a single example: expect misses.
 - Anything else that looks the same gets lettered too, such as a blank sheet of paper on a wall. Use `Bubble numbers` to see what was found and an empty line to skip it.
 - A narrow bubble cannot hold a long word at a readable size. Such text goes to the caption.
 - When a character fills most of the frame there may be no free place: a drawn bubble is then tried tall and narrow and shrunk, down to half, and put where it covers the least, keeping off heads and bubbles first. The head is taken to be the top quarter of a character, so this fails for a character lying down or upside down.

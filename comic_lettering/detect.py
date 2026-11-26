@@ -101,6 +101,11 @@ def _solidity(mask):
     return float(mask.sum()) / hull if hull > 0 else 0.0
 
 
+# How far apart the color channels of a light fill may be. Paper-colored bubbles (cream,
+# beige) reach the mid thirties; skin starts around sixty.
+MAX_TINT = 48
+
+
 def scan(rgb, floor=120, min_area=0.003, max_area=0.6, ceiling=60):
     """Yield every flat region that could be a bubble, with the measurements used to judge it.
 
@@ -111,7 +116,7 @@ def scan(rgb, floor=120, min_area=0.003, max_area=0.6, ceiling=60):
     mn = rgb.min(axis=2)
     mx = rgb.max(axis=2)
     smooth = (ndi.maximum_filter(lum, size=3) - ndi.minimum_filter(lum, size=3)) <= 8.0
-    light = smooth & ((mx.astype(np.int16) - mn) <= 32) & (lum >= floor)
+    light = smooth & ((mx.astype(np.int16) - mn) <= MAX_TINT) & (lum >= floor)
     for item in _scan_pass(rgb, lum, light, False, min_area, max_area):
         yield item
     for item in _scan_pass(rgb, lum, smooth & (lum <= ceiling), True, min_area, max_area):

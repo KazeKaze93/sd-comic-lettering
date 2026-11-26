@@ -220,7 +220,8 @@ def _assign(lines, count, fit):
     """Map text lines to bubbles, in order.
 
     fit(index, text) returns a layout, or None if the text does not fit that bubble;
-    the line then tries the next bubble. An empty line uses up one bubble.
+    the line then tries the next bubble. An empty line uses up one bubble; a line that
+    fits no bubble uses up none.
     Returns ([(bubble index, layout)], leftover lines).
     """
     taken = [False] * count
@@ -228,10 +229,12 @@ def _assign(lines, count, fit):
     rest = []
     for line in lines:
         placed = False
+        passed = []
         for index in range(count):
             if taken[index]:
                 continue
             taken[index] = True
+            passed.append(index)
             if not line:
                 placed = True
                 break
@@ -242,6 +245,9 @@ def _assign(lines, count, fit):
                 break
         if not placed and line:
             rest.append(line)
+            # It fits nowhere: the bubbles it passed over stay free for the next lines.
+            for index in passed:
+                taken[index] = False
     return plans, rest
 
 
