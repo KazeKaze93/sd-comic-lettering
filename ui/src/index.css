@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Colors as "r g b", so Tailwind can add opacity. Dark is the default: most hosts are dark. */
+:root {
+  --cl-bg: 17 19 23;
+  --cl-surface: 26 29 35;
+  --cl-raised: 36 40 48;
+  --cl-border: 58 63 74;
+  --cl-text: 232 234 238;
+  --cl-muted: 148 155 168;
+  --cl-accent: 76 155 232;
+  --cl-accent-text: 150 200 250;
+  --cl-warning: 224 160 48;
+  --cl-danger: 240 110 110;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --cl-bg: 240 241 244;
+  --cl-surface: 255 255 255;
+  --cl-raised: 248 249 251;
+  --cl-border: 214 218 226;
+  --cl-text: 28 31 38;
+  --cl-muted: 100 108 122;
+  --cl-accent: 36 112 196;
+  --cl-accent-text: 24 86 160;
+  --cl-warning: 176 112 16;
+  --cl-danger: 196 48 48;
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, 'Segoe UI', sans-serif;
+}

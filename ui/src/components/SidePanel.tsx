@@ -1,0 +1,330 @@
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { api } from '../api'
+import { useStore } from '../store'
+import type { LookOf } from '../types'
+import { Button, Label, Segmented, Select, Slider, TextInput, Toggle } from './controls'
+
+type FieldName = 'text' | 'caption' | 'sfx'
+
+interface SliderSpec {
+  key: string
+  label: string
+  min: number
+  max: number
+  step: number
+}
+
+const ALL_TEXT: SliderSpec[] = [
+  { key: 'soften', label: 'Soften the edges, px', min: 0, max: 3, step: 0.1 },
+  { key: 'grain', label: 'Uneven ink', min: 0, max: 1, step: 0.05 },
+  { key: 'arc', label: 'Bend into an arc', min: -1, max: 1, step: 0.05 },
+  { key: 'rotation', label: 'Tilt, degrees', min: -45, max: 45, step: 0.5 },
+  { key: 'opacity', label: 'Opacity', min: 0.1, max: 1, step: 0.05 },
+]
+const BUBBLES: SliderSpec[] = [
+  { key: 'bubble_size', label: 'Largest font, % of image height', min: 1, max: 30, step: 0.5 },
+  { key: 'bubble_min_size', label: 'Smallest readable font, %', min: 0.5, max: 10, step: 0.1 },
+  { key: 'margin', label: 'Gap to the bubble edge', min: 0, max: 0.3, step: 0.01 },
+  { key: 'white_threshold', label: 'Darkest fill still seen as a bubble', min: 40, max: 255, step: 1 },
+]
+const CAPTION: SliderSpec[] = [
+  { key: 'free_size', label: 'Font size, % of image height', min: 1, max: 30, step: 0.5 },
+  { key: 'stroke_width', label: 'Outline width', min: 0, max: 0.5, step: 0.01 },
+  { key: 'shadow', label: 'Shadow', min: 0, max: 1, step: 0.05 },
+]
+const EFFECTS: SliderSpec[] = [
+  { key: 'sfx_size', label: 'Font size, % of image height', min: 1, max: 30, step: 0.5 },
+  { key: 'sfx_tilt', label: 'Largest tilt, degrees', min: 0, max: 45, step: 1 },
+  { key: 'sfx_opacity', label: 'Opacity', min: 0.1, max: 1, step: 0.05 },
+  { key: 'sfx_seed', label: 'Arrangement number (Move raises it)', min: 0, max: 999, step: 1 },
+]
+const CUSTOM_MOOD: SliderSpec[] = [
+  { key: 'jitter', label: 'Letters wobble', min: 0, max: 1, step: 0.05 },
+  { key: 'size_jitter', label: 'Letters differ in size', min: 0, max: 1, step: 0.05 },
+  { key: 'rough', label: 'Ragged edges', min: 0, max: 1, step: 0.05 },
+  { key: 'line_tilt', label: 'Lines tilt, degrees', min: 0, max: 15, step: 0.5 },
+  { key: 'line_shift', label: 'Lines shift sideways', min: 0, max: 1, step: 0.05 },
+  { key: 'line_spacing', label: 'Line spacing', min: 0.7, max: 1.6, step: 0.02 },
+  { key: 'seed', label: 'Wobble pattern number', min: 0, max: 999, step: 1 },
+]
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2 border-t border-cl-border pt-3">
+      <div className="text-xs font-medium text-cl-text">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="mt-1 text-[11px] uppercase tracking-wide text-cl-muted">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+function Sliders({ specs }: { specs: SliderSpec[] }) {
+  const settings = useStore((state) => state.settings)
+  const setSetting = useStore((state) => state.setSetting)
+  const render = useStore((state) => state.render)
+  return (
+    <>
+      {specs.map((spec) => (
+        <Slider
+          key={spec.key}
+          label={spec.label}
+          value={Number(settings[spec.key] ?? 0)}
+          min={spec.min}
+          max={spec.max}
+          step={spec.step}
+          onChange={(value) => setSetting(spec.key, value, false)}
+          onCommit={() => void render()}
+        />
+      ))}
+    </>
+  )
+}
+
+function Check({ name, label }: { name: string; label: string }) {
+  const value = useStore((state) => Boolean(state.settings[name]))
+  const setSetting = useStore((state) => state.setSetting)
+  return <Toggle checked={value} onChange={(next) => setSetting(name, next)} label={label} />
+}
+
+function Color({ name, label }: { name: string; label: string }) {
+  const value = useStore((state) => String(state.settings[name] ?? 'auto'))
+  const setSetting = useStore((state) => state.setSetting)
+  const render = useStore((state) => state.render)
+  return (
+    <TextInput label={label} value={value} onChange={(next) => setSetting(name, next, false)} onCommit={() => void render()} />
+  )
+}
+
+export function SidePanel() {
+  const options = useStore((state) => state.options)
+  const settings = useStore((state) => state.settings)
+  const fields = {
+    text: useStore((state) => state.text),
+    caption: useStore((state) => state.caption),
+    sfx: useStore((state) => state.sfx),
+  }
+  const numbers = useStore((state) => state.numbers)
+  const lookOf = useStore((state) => state.lookOf)
+  const auto = useStore((state) => state.auto)
+  const embedded = useStore((state) => state.embedded)
+  const { setField, setNumbers, setSetting, setLookOf, setAuto, moveEffects, resetLook, render } = useStore.getState()
+
+  const areas = useRef<Record<FieldName, HTMLTextAreaElement | null>>({ text: null, caption: null, sfx: null })
+  const lastField = useRef<FieldName>('sfx')
+  const [fine, setFine] = useState(false)
+  const [keepFonts, setKeepFonts] = useState(true)
+
+  // Every font of the lists, so an entry can be drawn in its own font.
+  const families = useMemo(() => {
+    const map = new Map<string, string>()
+    options?.fonts.forEach((name, index) => map.set(name, `clf-${index}`))
+    return map
+  }, [options])
+  useEffect(() => {
+    if (!options) return
+    const style = document.createElement('style')
+    style.textContent = options.fonts
+      .map((name, index) => `@font-face{font-family:'clf-${index}';src:url('${api.fontUrl(name)}');font-display:swap}`)
+      .join('')
+    document.head.appendChild(style)
+    return () => style.remove()
+  }, [options])
+
+  if (!options) return null
+  const fontOf = (name: string) => (families.has(name) ? `'${families.get(name)}', sans-serif` : undefined)
+  const list = (key: string, label: string, choices: string[], fonts = false) => (
+    <Select
+      key={key}
+      label={label}
+      value={String(settings[key] ?? '')}
+      options={choices}
+      onChange={(value) => setSetting(key, value)}
+      fontOf={fonts ? fontOf : undefined}
+    />
+  )
+
+  /** Put a mark where the cursor is in the text field used last. */
+  const insert = (mark: string) => {
+    const name = lastField.current
+    const area = areas.current[name]
+    const value = fields[name]
+    const start = area?.selectionStart ?? value.length
+    const end = area?.selectionEnd ?? start
+    const before = value.slice(0, start)
+    const lead = before && !/\s$/.test(before) ? ' ' : ''
+    setField(name, before + lead + mark + value.slice(end))
+    requestAnimationFrame(() => {
+      if (!area) return
+      area.focus()
+      area.selectionStart = area.selectionEnd = before.length + lead.length + mark.length
+    })
+  }
+
+  const area = (name: FieldName, label: string, hint: string, rows: number, actions: ReactNode) => (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <Label>{label}</Label>
+        <span className="flex items-center gap-1">{actions}</span>
+      </div>
+      <textarea
+        ref={(element) => {
+          areas.current[name] = element
+        }}
+        value={fields[name]}
+        rows={rows}
+        placeholder={hint}
+        spellCheck={false}
+        onFocus={() => {
+          lastField.current = name
+        }}
+        onChange={(event) => setField(name, event.target.value)}
+        onBlur={() => void render()}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void render()
+        }}
+        className="w-full resize-y rounded border border-cl-border bg-cl-raised px-2 py-1.5 text-sm placeholder:text-cl-muted"
+      />
+    </div>
+  )
+  const clear = (name: FieldName) => (
+    <Button
+      variant="quiet"
+      onClick={() => {
+        setField(name, '')
+        void render()
+      }}
+    >
+      Clear
+    </Button>
+  )
+
+  const looks: { value: LookOf; label: string }[] = [
+    { value: 'bubble', label: 'Bubbles' },
+    { value: 'caption', label: 'Caption' },
+    { value: 'sfx', label: 'Effects' },
+  ]
+  const drawn = settings.caption_bubble !== 'none'
+
+  return (
+    <aside className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-cl-border bg-cl-surface p-3">
+      {area(
+        'text',
+        'Bubbles',
+        'One line per bubble; an empty line skips one.',
+        3,
+        <>
+          <Toggle checked={numbers} onChange={setNumbers} label="Numbers" />
+          {clear('text')}
+        </>,
+      )}
+      {area('caption', 'Caption', 'Text on the art, outside the bubbles.', 2, clear('caption'))}
+      {area(
+        'sfx',
+        'Sound effects',
+        'One per line: SLAP, THUD x3.',
+        2,
+        <>
+          <Button variant="quiet" onClick={moveEffects} title="Put the effects somewhere else">
+            Move
+          </Button>
+          {clear('sfx')}
+        </>,
+      )}
+      <div className="flex flex-wrap items-center gap-1">
+        {options.symbols.map((mark) => (
+          <Button key={mark} onClick={() => insert(mark)} title="Insert at the cursor">
+            {mark}
+          </Button>
+        ))}
+        <span className="ml-1 text-[11px] text-cl-muted">*word* makes a word bigger</span>
+      </div>
+
+      <Section title="Look">
+        <Segmented value={lookOf} options={looks} onChange={setLookOf} />
+        <div className="grid grid-cols-2 gap-2">
+          {lookOf === 'bubble' && [
+            list('font', 'Font', options.fonts, true),
+            list('bubble_colors', 'Colors', options.palettes),
+            list('bubble_mood', 'Mood', options.moods),
+          ]}
+          {lookOf === 'caption' && [
+            list('caption_font', 'Font', [options.sameFont, ...options.fonts], true),
+            list('caption_colors', 'Colors', options.palettes),
+            list('caption_mood', 'Mood', options.moods),
+            list('caption_extras', 'Marks around', options.extras),
+            list('placement', 'Position', options.placements),
+            list('caption_bubble', 'Put in a bubble', options.shapes),
+            drawn && list('caption_bubble_theme', 'Bubble color', options.themes),
+            drawn && list('caption_tail', 'Tail', options.tails),
+          ]}
+          {lookOf === 'sfx' && [
+            list('sfx_font', 'Font', options.fonts, true),
+            list('sfx_colors', 'Colors', options.palettes),
+            list('sfx_mood', 'Mood', options.moods),
+            list('sfx_extras', 'Marks around', options.extras),
+          ]}
+        </div>
+      </Section>
+
+      <div className="border-t border-cl-border pt-3">
+        <button
+          type="button"
+          aria-expanded={fine}
+          onClick={() => setFine(!fine)}
+          className="flex w-full items-center justify-between text-xs font-medium text-cl-text"
+        >
+          <span>Fine tuning</span>
+          <span className="text-cl-muted" aria-hidden="true">
+            {fine ? '▴' : '▾'}
+          </span>
+        </button>
+        {fine && (
+          <div className="mt-2 flex flex-col gap-3">
+            <Group title="All text">
+              <Check name="uppercase" label="Capital letters" />
+              <Sliders specs={ALL_TEXT} />
+            </Group>
+            <Group title="Bubbles">
+              <Check name="erase" label="Erase the letters the model drew" />
+              <Check name="spill" label="Text too long for a bubble goes to the caption" />
+              <Sliders specs={BUBBLES} />
+            </Group>
+            <Group title="Caption">
+              <Sliders specs={CAPTION} />
+              <Color name="text_color" label="Text color for Colors: custom (#RRGGBB or auto)" />
+              <Color name="stroke_color" label="Outline color for Colors: custom (#RRGGBB or auto)" />
+            </Group>
+            <Group title="Sound effects">
+              <Sliders specs={EFFECTS} />
+              <Color name="sfx_color" label="Color for Colors: custom (#RRGGBB or auto)" />
+            </Group>
+            <Group title="Mood: custom">
+              <Sliders specs={CUSTOM_MOOD} />
+            </Group>
+            <div className="flex items-center justify-between gap-2">
+              <Button onClick={() => resetLook(keepFonts)}>Reset the look</Button>
+              <Toggle checked={keepFonts} onChange={setKeepFonts} label="Keep the fonts" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {embedded && (
+        <div className="border-t border-cl-border pt-3">
+          <Toggle checked={auto} onChange={setAuto} label="Letter every new image while it is generated" />
+          <p className="mt-1 text-[11px] leading-snug text-cl-muted">
+            Uses the three texts above and this look for each image a generation makes.
+          </p>
+        </div>
+      )}
+    </aside>
+  )
+}

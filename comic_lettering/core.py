@@ -72,7 +72,7 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     items = []
     scene = {"version": 1, "size": [image.width, image.height], "style": dict(vars(style)),
              "white_threshold": int(white_threshold), "rtl": bool(rtl), "erase": bool(erase),
-             "people": False, "empty": False, "items": items, "info": info}
+             "people": False, "empty": False, "bubbles": [], "items": items, "info": info}
     lines = [line.strip() for line in (text or "").replace("\r", "").split("\n")]
     while lines and not lines[-1]:
         lines.pop()
@@ -85,6 +85,7 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     height = rgb.shape[0]
     bubbles = detect_bubbles(rgb, white_threshold, rtl=rtl)  # also so nothing lands on them
     info["bubbles_found"] = len(bubbles)
+    scene["bubbles"] = [[int(v) for v in bubble.bbox()] for bubble in bubbles]  # x0, y0, x1, y1, in reading order
     strict = bool(spill)
     if numbers:
         lines = [str(i + 1) for i in range(len(bubbles))]

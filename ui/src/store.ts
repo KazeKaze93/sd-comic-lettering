@@ -1,0 +1,254 @@
+import { create } from 'zustand'
+import { api, type NewSession } from './api'
+import type { HostImage, LookOf, Options, Settings, Slot, Source } from './types'
+
+const FONT_KEYS = ['font', 'caption_font', 'sfx_font']
+
+interface State {
+  options: Options | null
+  /** Whether the page runs inside the host's overlay (a host gallery exists). */
+  embedded: boolean
+  source: Source
+  slots: Record<Source, Slot | null>
+  hostImage: HostImage | null
+  text: string
+  caption: string
+  sfx: string
+  numbers: boolean
+  settings: Settings
+  auto: boolean
+  lookOf: LookOf
+  showOriginal: boolean
+  showFrames: boolean
+  busy: boolean
+  status: string
+  warning: boolean
+  error: string | null
+
+  start: (embedded: boolean) => Promise<void>
+  setSource: (source: Source) => void
+  hostOpened: (image: HostImage) => Promise<void>
+  loadFile: (file: Blob, name: string) => Promise<void>
+  setField: (field: 'text' | 'caption' | 'sfx', value: string) => void
+  setNumbers: (value: boolean) => void
+  setSetting: (key: string, value: string | number | boolean, render?: boolean) => void
+  setAuto: (value: boolean) => void
+  setLookOf: (value: LookOf) => void
+  setShowOriginal: (value: boolean) => void
+  setShowFrames: (value: boolean) => void
+  moveEffects: () => void
+  resetLook: (keepFonts: boolean) => void
+  render: () => Promise<void>
+  save: () => Promise<void>
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+let rendering = false
+let renderAgain = false
+
+function slotOf(created: NewSession): Slot {
+  return {
+    session: created.session,
+    width: created.width,
+    height: created.height,
+    version: 0,
+    empty: true,
+    items: [],
+    bubbles: [],
+    applied: '',
+  }
+}
+
+export const useStore = create<State>((set, get) => {
+  /** Remember the look and what is lettered onto new images, a moment after the last change. */
+  const persist = () => {
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      const { settings, auto, text, caption, sfx } = get()
+      api.saveSettings(settings, { enabled: auto, text, caption, sfx }).catch(() => undefined)
+    }, 400)
+  }
+
+  const fail = (error: unknown) => set({ busy: false, error: error instanceof Error ? error.message : String(error) })
+
+  return {
+    options: null,
+    embedded: false,
+    source: 'own',
+    slots: { generation: null, own: null },
+    hostImage: null,
+    text: '',
+    caption: '',
+    sfx: '',
+    numbers: false,
+    settings: {},
+    auto: false,
+    lookOf: 'bubble',
+    showOriginal: false,
+    showFrames: true,
+    busy: false,
+    status: '',
+    warning: false,
+    error: null,
+
+    start: async (embedded) => {
+      try {
+        const options = await api.options()
+        set({
+          options,
+          embedded,
+          source: embedded ? 'generation' : 'own',
+          settings: options.settings,
+          auto: options.auto.enabled,
+          // The texts come back only while they are being lettered onto new images:
+          // then the fields must show what the host is using.
+          text: options.auto.enabled ? options.auto.text : '',
+          caption: options.auto.enabled ? options.auto.caption : '',
+          sfx: options.auto.enabled ? options.auto.sfx : '',
+        })
+      } catch (error) {
+        fail(error)
+      }
+    },
+
+    setSource: (source) => {
+      set({ source, error: null, status: '' })
+      void get().render()
+    },
+
+    hostOpened: async (image) => {
+      set({ hostImage: image, error: null })
+      if (!image.url) {
+        set((state) => ({ slots: { ...state.slots, generation: null } }))
+        return
+      }
+      set({ busy: true })
+      try {
+        let created: NewSession
+        try {
+          // The host keeps the images of the last generation as they were before any lettering.
+          created = await api.lastGeneration(image.tab, image.index, image.count)
+        } catch {
+          // Not from the last generation (or the host was restarted): take what the gallery shows.
+          const blob = await fetch(image.url).then((response) => {
+            if (!response.ok) throw new Error('Could not read the image from the gallery.')
+            return response.blob()
+          })
+          created = await api.upload(blob, 'generation')
+        }
+        set((state) => ({ busy: false, slots: { ...state.slots, generation: slotOf(created) } }))
+        await get().render()
+      } catch (error) {
+        fail(error)
+      }
+    },
+
+    loadFile: async (file, name) => {
+      set({ busy: true, error: null })
+      try {
+        const created = await api.upload(file, name)
+        set((state) => ({ busy: false, slots: { ...state.slots, own: slotOf(created) } }))
+        await get().render()
+      } catch (error) {
+        fail(error)
+      }
+    },
+
+    setField: (field, value) => {
+      set({ [field]: value } as Pick<State, 'text' | 'caption' | 'sfx'>)
+      persist()
+    },
+
+    setNumbers: (value) => {
+      set({ numbers: value })
+      void get().render()
+    },
+
+    setSetting: (key, value, render = true) => {
+      set((state) => ({ settings: { ...state.settings, [key]: value } }))
+      persist()
+      if (render) void get().render()
+    },
+
+    setAuto: (value) => {
+      set({ auto: value })
+      persist()
+    },
+
+    setLookOf: (value) => set({ lookOf: value }),
+    setShowOriginal: (value) => set({ showOriginal: value }),
+    setShowFrames: (value) => set({ showFrames: value }),
+
+    moveEffects: () => {
+      const current = Number(get().settings.sfx_seed) || 0
+      get().setSetting('sfx_seed', current + 1)
+    },
+
+    resetLook: (keepFonts) => {
+      const { options, settings } = get()
+      if (!options) return
+      const next: Settings = { ...options.defaults }
+      if (keepFonts) for (const key of FONT_KEYS) next[key] = settings[key]
+      set({ settings: next })
+      persist()
+      void get().render()
+    },
+
+    render: async () => {
+      const state = get()
+      const slot = state.slots[state.source]
+      if (!slot) return
+      if (rendering) {
+        renderAgain = true
+        return
+      }
+      const { text, caption, sfx, numbers, settings, source } = state
+      const signature = JSON.stringify([text, caption, sfx, numbers, settings])
+      if (signature === slot.applied) return
+      rendering = true
+      set({ busy: true, error: null })
+      try {
+        const result = await api.render(slot.session, text, caption, sfx, numbers, settings)
+        set((now) => {
+          const held = now.slots[source]
+          if (!held || held.session !== slot.session) return { busy: false }
+          return {
+            busy: false,
+            status: result.status,
+            warning: result.warning,
+            slots: {
+              ...now.slots,
+              [source]: {
+                ...held,
+                version: result.version,
+                empty: result.empty,
+                items: result.items,
+                bubbles: result.bubbles,
+                applied: signature,
+              },
+            },
+          }
+        })
+      } catch (error) {
+        fail(error)
+      } finally {
+        rendering = false
+        if (renderAgain) {
+          renderAgain = false
+          void get().render()
+        }
+      }
+    },
+
+    save: async () => {
+      const slot = get().slots[get().source]
+      if (!slot) return
+      try {
+        const saved = await api.save(slot.session)
+        set({ status: `Saved to ${saved.path}`, warning: false, error: null })
+      } catch (error) {
+        fail(error)
+      }
+    },
+  }
+})

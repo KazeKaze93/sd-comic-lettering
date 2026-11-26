@@ -1,119 +1,97 @@
-// Small helpers for the Comic Lettering panel. Host JS: no arrow functions, no template literals.
+// Host side of Comic Lettering: opens the editor (a React page in an iframe) over the page
+// and passes it the image the gallery shows. Host JS: no arrow functions, no template literals.
 (function () {
-    // --- 1. A click on an open list's field closes the list. -------------------------
-    // A Gradio 3 dropdown stays open when its field is clicked a second time: the click
-    // only re-selects the text.
-    var closedAt = 0;
+    var overlay = null;
+    var frame = null;
+    var ready = false;
+    var tab = 'txt2img';
 
-    function openField(target) {
-        if (!target || !target.closest) {
-            return null;
-        }
-        if (!target.closest('[id^="comic_lettering_"]') || target.closest('ul.options')) {
-            return null;
-        }
-        var wrap = target.closest('.wrap-inner');
-        if (!wrap || !wrap.classList.contains('showOptions')) {
-            return null;
-        }
-        return wrap.querySelector('input');
+    function app() {
+        return (typeof gradioApp === 'function') ? gradioApp() : document;
     }
 
-    document.addEventListener('mousedown', function (event) {
-        var input = openField(event.target);
-        if (!input) {
-            return;
+    // The image the gallery shows now, and where it stands among the gallery's images.
+    function galleryImage() {
+        var gallery = app().querySelector('#' + tab + '_gallery');
+        var thumbs = gallery ? gallery.querySelectorAll('.thumbnail-item img, .thumbnails img') : [];
+        var index = 0;
+        if (typeof selected_gallery_index === 'function') {
+            index = selected_gallery_index();
         }
-        event.preventDefault();
-        event.stopPropagation();
-        input.blur();
-        closedAt = Date.now();
-    }, true);
-
-    // The click that follows that mousedown would open the list again.
-    document.addEventListener('click', function (event) {
-        if (Date.now() - closedAt > 400) {
-            return;
+        if (index < 0) {
+            index = 0;
         }
-        if (event.target && event.target.closest && event.target.closest('[id^="comic_lettering_"] .wrap-inner')) {
-            event.preventDefault();
-            event.stopPropagation();
-            closedAt = 0;
-        }
-    }, true);
-
-    // --- 2. Mark buttons insert at the cursor of the text field used last. ------------
-    var lastField = {};  // panel id -> textarea
-
-    function panelOf(node) {
-        var box = node && node.closest ? node.closest('[id^="comic_lettering_"]') : null;
-        while (box && !/^comic_lettering_(txt2img|img2img)$/.test(box.id)) {
-            box = box.parentElement ? box.parentElement.closest('[id^="comic_lettering_"]') : null;
-        }
-        return box;
+        var shown = gallery ? gallery.querySelector('.preview > img, img[data-testid="detailed-image"]') : null;
+        var picked = shown || thumbs[index] || (gallery ? gallery.querySelector('img') : null);
+        var url = picked && picked.src && picked.src.indexOf('data:') !== 0 ? picked.src : null;
+        return {tab: tab, url: url, index: index, count: thumbs.length || (url ? 1 : 0)};
     }
 
-    document.addEventListener('focusin', function (event) {
-        var target = event.target;
-        if (!target || target.tagName !== 'TEXTAREA') {
-            return;
-        }
-        var panel = panelOf(target);
-        if (panel) {
-            lastField[panel.id] = target;
-        }
-    }, true);
+    function theme() {
+        var dark = document.body.classList.contains('dark') || app().querySelector('.dark') !== null;
+        return dark ? 'dark' : 'light';
+    }
 
-    window.sdclInsert = function (panelId, mark) {
-        var app = (typeof gradioApp === 'function') ? gradioApp() : document;
-        var field = lastField[panelId];
-        if (!field || !field.isConnected) {
-            field = app.querySelector('#' + panelId + '_sfx textarea');
-        }
-        if (!field) {
+    function send() {
+        if (!frame || !ready || !frame.contentWindow) {
             return;
         }
-        var start = field.selectionStart === null ? field.value.length : field.selectionStart;
-        var end = field.selectionEnd === null ? start : field.selectionEnd;
-        var before = field.value.slice(0, start);
-        var after = field.value.slice(end);
-        // Keep marks apart from the neighbouring word, as typed text would be.
-        var lead = (before && !/\s$/.test(before)) ? ' ' : '';
-        var text = lead + mark;
-        var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-        setter.call(field, before + text + after);
-        field.dispatchEvent(new Event('input', {bubbles: true}));
-        field.focus();
-        field.selectionStart = field.selectionEnd = before.length + text.length;
-    };
+        frame.contentWindow.postMessage({type: 'SDCL_INIT', image: galleryImage(), theme: theme()},
+            window.location.origin);
+    }
 
-    // --- 3. txt2img and img2img share one settings file. --------------------------------
-    // When the other tab comes into view, its panel reloads the saved settings, so it
-    // neither shows stale lists nor writes them back over the newer ones.
-    var panelIds = ['comic_lettering_txt2img', 'comic_lettering_img2img'];
-    var shown = null;
+    function close() {
+        if (overlay) {
+            overlay.style.display = 'none';
+        }
+    }
 
-    setInterval(function () {
-        if (typeof gradioApp !== 'function') {
+    function build() {
+        overlay = document.createElement('div');
+        overlay.id = 'comic_lettering_overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.6);display:none;';
+        frame = document.createElement('iframe');
+        frame.title = 'Comic Lettering';
+        frame.src = '/comic_lettering/ui';
+        frame.style.cssText = 'position:absolute;inset:12px;width:calc(100% - 24px);height:calc(100% - 24px);' +
+            'border:1px solid rgba(128,128,128,0.4);border-radius:8px;background:#111317;';
+        overlay.appendChild(frame);
+        document.body.appendChild(overlay);
+    }
+
+    window.addEventListener('message', function (event) {
+        if (!frame || event.source !== frame.contentWindow || event.origin !== window.location.origin) {
             return;
         }
-        var app = gradioApp();
-        var now = null;
-        for (var i = 0; i < panelIds.length; i++) {
-            var panel = app.querySelector('#' + panelIds[i]);
-            if (panel && panel.offsetParent !== null) {
-                now = panelIds[i];
-            }
-        }
-        if (!now) {
-            return;
-        }
-        if (shown && now !== shown) {
-            var button = app.querySelector('#' + now + '_sync');
+        var data = event.data || {};
+        if (data.type === 'SDCL_READY') {
+            ready = true;
+            send();
+        } else if (data.type === 'SDCL_CLOSE') {
+            close();
+        } else if (data.type === 'SDCL_TO_GALLERY' && typeof data.session === 'string') {
+            // The hidden Gradio button reads the session id from here and fills the gallery.
+            window.sdclSession = data.session;
+            var button = app().querySelector('#comic_lettering_to_gallery');
             if (button) {
                 button.click();
             }
+            close();
         }
-        shown = now;
-    }, 700);
+    });
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && overlay && overlay.style.display !== 'none') {
+            close();
+        }
+    });
+
+    window.sdclOpen = function (which) {
+        tab = which || 'txt2img';
+        if (!overlay) {
+            build();
+        }
+        overlay.style.display = 'block';
+        send();  // the page itself asks again with SDCL_READY once it has loaded
+    };
 })();
