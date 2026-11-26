@@ -28,6 +28,7 @@ export interface NewSession {
   session: string
   width: number
   height: number
+  origin?: string
 }
 
 export const api = {
@@ -40,8 +41,8 @@ export const api = {
     ),
 
   /** The clean copy of an image of the last generation, by its place in the host gallery. */
-  lastGeneration: (tab: string, index: number, count: number) =>
-    post<NewSession>('/session/last', { tab, index, count }),
+  lastGeneration: (tab: string, index: number, count: number, known?: string, session?: string) =>
+    post<NewSession | { same: true }>('/session/last', { tab, index, count, known, session }),
 
   render: (
     session: string,

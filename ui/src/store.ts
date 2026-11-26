@@ -155,9 +155,17 @@ export const useStore = create<State>((set, get) => {
       set({ busy: true })
       try {
         let created: NewSession
+        const held = get().slots.generation
         try {
           // The host keeps the images of the last generation as they were before any lettering.
-          created = await api.lastGeneration(image.tab, image.index, image.count)
+          const answer = await api.lastGeneration(image.tab, image.index, image.count, held?.origin, held?.session)
+          if ('same' in answer) {
+            // The image that is already open: what was placed and drawn on it stays.
+            set({ busy: false })
+            await get().render()
+            return
+          }
+          created = answer
         } catch {
           // Not from the last generation (or the host was restarted): take what the gallery shows.
           const blob = await fetch(image.url).then((response) => {
@@ -166,7 +174,12 @@ export const useStore = create<State>((set, get) => {
           })
           created = await api.upload(blob, 'generation')
         }
-        set((state) => ({ busy: false, slots: { ...state.slots, generation: slotOf(created) } }))
+        set((state) => ({
+          busy: false,
+          region: null,
+          selected: null,
+          slots: { ...state.slots, generation: { ...slotOf(created), origin: created.origin } },
+        }))
         await get().render()
       } catch (error) {
         fail(error)

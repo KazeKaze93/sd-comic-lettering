@@ -58,6 +58,14 @@ _sessions = OrderedDict()  # type: OrderedDict
 MAX_SESSIONS = 6
 # The images of the last generation before any lettering, per tab ("txt2img", "img2img").
 LAST_CLEAN = {}  # type: Dict[str, List[Image.Image]]
+# Counts the generations per tab, so the page can tell an image it already has from a new one.
+GENERATION = {}  # type: Dict[str, int]
+
+
+def begin_generation(tab):
+    """Forget the images of the previous generation of a tab."""
+    LAST_CLEAN[tab] = []
+    GENERATION[tab] = GENERATION.get(tab, 0) + 1
 
 
 # ---------------------------------------------------------------- settings
@@ -334,7 +342,8 @@ def register(app, save_folder=None):
     async def last(request: Request):
         """A session from the clean copy of an image of the last generation."""
         body = await request.json()
-        images = LAST_CLEAN.get(str(body.get("tab") or "txt2img")) or []
+        tab = str(body.get("tab") or "txt2img")
+        images = LAST_CLEAN.get(tab) or []
         index, count = body.get("index"), body.get("count")
         if not isinstance(index, int) or not isinstance(count, int):
             return fail("no such image", 404)
@@ -342,9 +351,13 @@ def register(app, save_folder=None):
         index -= max(0, count - len(images))
         if index < 0 or index >= len(images):
             return fail("no such image", 404)
+        # The same image as the page already has: it keeps its session and what was done there.
+        origin = "%s:%d:%d" % (tab, GENERATION.get(tab, 0), index)
+        if body.get("known") == origin and get_session(str(body.get("session") or "")) is not None:
+            return JSONResponse({"same": True, "origin": origin})
         image = images[index]
         session = new_session(image, "generation")
-        return JSONResponse({"session": session["id"], "width": image.width, "height": image.height})
+        return JSONResponse({"session": session["id"], "width": image.width, "height": image.height, "origin": origin})
 
     @app.get("/comic_lettering/image/{session_id}/{which}")
     async def image_bytes(session_id: str, which: str):

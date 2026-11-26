@@ -62,7 +62,7 @@ The `Comic Lettering` button sits under the txt2img result gallery. It opens the
 | `Effect` | Its text is one sound effect, sized to the area and put in its middle. |
 | `Keep out` | Nothing that the script places (caption, drawn bubble, sound effects) lands there. |
 
-Drawing adds to the picked area; `New area` starts another one. Everything the script places keeps off every area. Areas belong to the image they were drawn on. Set the tool back to `Off` to move things by their frames again.
+Drawing adds to the picked area; `New area` starts another one. Everything the script places keeps off every area. Areas and things placed by hand belong to the image they were made on: they stay when the editor is closed and opened again on the same image, and go with the next generation. Set the tool back to `Off` to move things by their frames again.
 
 The status line under the image says how many bubbles were found and filled. The look is remembered in `user_settings.json`. The texts are remembered only while `Letter every new image` is on, since the host then needs them.
 

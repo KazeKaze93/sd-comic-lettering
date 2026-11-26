@@ -77,7 +77,7 @@ class ComicLetteringScript(scripts.Script):
         return [image] if image is not None else gr.update()
 
     def process(self, p, *args):
-        web.LAST_CLEAN[self.tab or ("img2img" if self.is_img2img else "txt2img")] = []
+        web.begin_generation(self.tab or ("img2img" if self.is_img2img else "txt2img"))
 
     def postprocess_image(self, p, pp, *args):
         tab = self.tab or ("img2img" if self.is_img2img else "txt2img")

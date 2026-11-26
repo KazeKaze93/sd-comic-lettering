@@ -97,6 +97,8 @@ export interface Slot {
   pins: Record<string, Pin>
   /** Areas drawn by hand. */
   regions: Region[]
+  /** Which image of which generation this is, when the host knows; an image opened again keeps its slot. */
+  origin?: string
 }
 
 /** What the host page tells the editor about the image in its gallery. */
