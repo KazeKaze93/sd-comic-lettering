@@ -112,9 +112,8 @@
         svg.setAttribute('stroke-linecap', 'round');
         svg.setAttribute('stroke-linejoin', 'round');
         svg.setAttribute('aria-hidden', 'true');
-        // A speech bubble with a letter in it.
-        var parts = ['M4 4h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-4.5 4v-4H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
-            'M9.3 13l2.7-6.2 2.7 6.2', 'M10.3 10.9h3.4'];
+        // An empty oval speech bubble.
+        var parts = ['M12 3.5c5 0 9 3.1 9 7s-4 7-9 7c-.9 0-1.8-.1-2.6-.3L5 20.5l1.2-4.2C4.2 15 3 12.9 3 10.5c0-3.9 4-7 9-7z'];
         for (var i = 0; i < parts.length; i++) {
             var path = document.createElementNS(NS, 'path');
             path.setAttribute('d', parts[i]);
