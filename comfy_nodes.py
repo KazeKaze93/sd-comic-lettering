@@ -1,15 +1,35 @@
 """ComfyUI node: place it between VAE Decode and Save Image."""
+import json
+
 import numpy as np
 import torch
 from PIL import Image
 
 from .comic_lettering import (BUBBLE_SHAPES, BUBBLE_THEMES, EXTRAS, MOODS, PALETTES, PLACEMENTS,
-                              TAILS, Style, font_names, letter)
+                              TAILS, Style, arrange, draw, font_names, web)
 
 SAME_FONT = "same as bubbles"
 # Inputs that are arguments of letter() rather than Style options.
 DIRECT = ("image", "bubbles", "caption", "sfx", "show_numbers", "spill_to_caption", "placement",
-          "erase_ai_text", "white_threshold")
+          "erase_ai_text", "white_threshold", "layout")
+
+
+def node_tab(unique_id):
+    """The name under which the editor finds the image a node last worked on."""
+    return "node:%s" % unique_id
+
+
+def read_layout(layout):
+    """What the editor placed and drew by hand, from the node's hidden field: (pins, regions)."""
+    try:
+        data = json.loads(layout) if layout else {}
+    except (TypeError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    pins = data.get("pins") if isinstance(data.get("pins"), dict) else {}
+    regions = data.get("regions") if isinstance(data.get("regions"), list) else []
+    return pins, regions
 
 
 def sfx_fonts():
@@ -81,15 +101,26 @@ class ComicLettering(object):
             "white_threshold": ("INT", {"default": 120, "min": 40, "max": 255}),
             "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFF}),
             "sfx_seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFF}),
-        }}
+        }, "optional": {
+            # Written by the editor (the Open editor button): what was placed and drawn by hand.
+            "layout": ("STRING", {"default": "", "multiline": False}),
+        }, "hidden": {"unique_id": "UNIQUE_ID"}}
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "run"
     CATEGORY = "image/postprocessing"
 
     def run(self, image, bubbles, caption, sfx, show_numbers, spill_to_caption, placement,
-            erase_ai_text, white_threshold, **options):
-        if not bubbles.strip() and not caption.strip() and not sfx.strip() and not show_numbers:
+            erase_ai_text, white_threshold, layout="", unique_id=None, **options):
+        pins, regions = read_layout(layout)
+        if unique_id is not None and len(image):
+            # The editor letters the image this node last saw, as it came in.
+            tab = node_tab(unique_id)
+            web.begin_generation(tab)
+            first = (image[0][..., :3].cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+            web.LAST_CLEAN[tab].append(Image.fromarray(first))
+        if (not bubbles.strip() and not caption.strip() and not sfx.strip() and not show_numbers
+                and not any(isinstance(region, dict) and region.get("text") for region in regions)):
             return (image,)
         style = Style()
         for key, value in options.items():
@@ -100,10 +131,11 @@ class ComicLettering(object):
         frames = []
         for frame in image:
             array = (frame[..., :3].cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-            result, _ = letter(Image.fromarray(array), bubbles, caption=caption,
-                               spill=spill_to_caption, placement=placement, style=style,
-                               erase=erase_ai_text, white_threshold=white_threshold,
-                               numbers=show_numbers, sfx=sfx)
+            picture = Image.fromarray(array)
+            scene = arrange(picture, bubbles, caption=caption, spill=spill_to_caption, placement=placement,
+                            style=style, erase=erase_ai_text, white_threshold=white_threshold,
+                            numbers=show_numbers, sfx=sfx, pins=pins, regions=regions)
+            result = draw(picture, scene)
             frames.append(torch.from_numpy(np.asarray(result).astype(np.float32) / 255.0))
         return (torch.stack(frames),)
 

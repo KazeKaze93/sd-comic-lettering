@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api, type NewSession } from './api'
+import { tellHost, type NodeState } from './bridge'
 import { boxOf, bubbleShapes, turned } from './geometry'
 import type { BubbleTemplate, HostImage, LookOf, Options, Pin, Region, Settings, Shape, Slot, Source, Tool } from './types'
 
@@ -9,6 +10,8 @@ interface State {
   options: Options | null
   /** Whether the page runs inside the host's overlay (a host gallery exists). */
   embedded: boolean
+  /** In ComfyUI: the node keeps the texts, the look and the layout, and the page writes them back to it. */
+  comfy: boolean
   source: Source
   slots: Record<Source, Slot | null>
   hostImage: HostImage | null
@@ -40,7 +43,7 @@ interface State {
 
   start: (embedded: boolean) => Promise<void>
   setSource: (source: Source) => void
-  hostOpened: (image: HostImage) => Promise<void>
+  hostOpened: (image: HostImage, node?: NodeState) => Promise<void>
   loadFile: (file: Blob, name: string) => Promise<void>
   setField: (field: 'text' | 'caption' | 'sfx', value: string) => void
   setNumbers: (value: boolean) => void
@@ -103,6 +106,8 @@ function slotOf(created: NewSession): Slot {
 }
 
 let regionCount = 0
+/** In ComfyUI: the layout the node came with, kept for when there is no image to put it on yet. */
+let nodeLayout: NodeState['layout'] = { pins: {}, regions: [] }
 
 /** Is this one sweep of the brush along a line, not a scribble that fills a patch? A sweep is
  * not much longer than the box around it is across; a scribble goes back and forth inside it. */
@@ -129,7 +134,16 @@ export const useStore = create<State>((set, get) => {
   const persist = () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
-      const { settings, auto, text, caption, sfx } = get()
+      const { settings, auto, text, caption, sfx, comfy, slots } = get()
+      if (comfy) {
+        // The node is the memory: hand it everything, so the next run of the workflow gives this picture.
+        const slot = slots.generation
+        tellHost({
+          type: 'SDCL_STATE',
+          state: { texts: { text, caption, sfx }, settings, layout: slot ? { pins: slot.pins, regions: slot.regions } : nodeLayout },
+        })
+        return
+      }
       api.saveSettings(settings, { enabled: auto, text, caption, sfx }).catch(() => undefined)
     }, 400)
   }
@@ -139,6 +153,7 @@ export const useStore = create<State>((set, get) => {
   return {
     options: null,
     embedded: false,
+    comfy: false,
     source: 'own',
     slots: { generation: null, own: null },
     hostImage: null,
@@ -189,9 +204,21 @@ export const useStore = create<State>((set, get) => {
       void get().render()
     },
 
-    hostOpened: async (image) => {
+    hostOpened: async (image, node) => {
       set({ hostImage: image, error: null })
-      if (!image.url) {
+      if (node) {
+        // What the node holds wins over what the page had: its widgets may have been changed by hand.
+        nodeLayout = node.layout
+        set((state) => ({
+          comfy: true,
+          auto: false,
+          text: node.texts.text,
+          caption: node.texts.caption,
+          sfx: node.texts.sfx,
+          settings: { ...(state.options?.defaults ?? {}), ...node.settings },
+        }))
+      }
+      if (!image.url && !node) {
         set((state) => ({ slots: { ...state.slots, generation: null } }))
         return
       }
@@ -209,7 +236,13 @@ export const useStore = create<State>((set, get) => {
             return
           }
           created = answer
-        } catch {
+        } catch (error) {
+          if (!image.url) {
+            // ComfyUI: the node has not run yet, so there is no image of its own to show.
+            set((state) => ({ busy: false, slots: { ...state.slots, generation: null } }))
+            return
+          }
+          void error
           // Not from the last generation (or the host was restarted): take what the gallery shows.
           const blob = await fetch(image.url).then((response) => {
             if (!response.ok) throw new Error('Could not read the image from the gallery.')
@@ -221,7 +254,11 @@ export const useStore = create<State>((set, get) => {
           busy: false,
           region: null,
           selected: null,
-          slots: { ...state.slots, generation: { ...slotOf(created), origin: created.origin } },
+          slots: {
+            ...state.slots,
+            // In ComfyUI the layout the node holds goes onto the image the node last saw.
+            generation: { ...slotOf(created), origin: created.origin, ...(node ? { pins: node.layout.pins, regions: node.layout.regions } : {}) },
+          },
         }))
         await get().render()
       } catch (error) {
@@ -478,6 +515,7 @@ export const useStore = create<State>((set, get) => {
             },
           }
         })
+        if (get().comfy) persist()
       } catch (error) {
         fail(error)
       } finally {

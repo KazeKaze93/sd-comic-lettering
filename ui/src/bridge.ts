@@ -1,13 +1,23 @@
-import type { HostImage } from './types'
+import type { HostImage, Pin, Region, Settings } from './types'
 
-/** Messages from the host page (javascript/comic_lettering.js) to this page. */
-export type HostMessage = { type: 'SDCL_INIT'; image: HostImage; theme: 'dark' | 'light' }
+/** What a ComfyUI node holds: its texts, its look, and what was placed and drawn by hand.
+ * In ComfyUI the node is where everything is kept; the page reads it on opening and writes back. */
+export interface NodeState {
+  texts: { text: string; caption: string; sfx: string }
+  settings: Settings
+  layout: { pins: Record<string, Pin>; regions: Region[] }
+}
+
+/** Messages from the host page to this page: javascript/comic_lettering.js in the A1111 family,
+ * comfy_web/comic_lettering.js in ComfyUI, which also sends the node's state. */
+export type HostMessage = { type: 'SDCL_INIT'; image: HostImage; theme: 'dark' | 'light'; node?: NodeState }
 
 /** Messages from this page to the host page. */
 export type FrameMessage =
   | { type: 'SDCL_READY' }
   | { type: 'SDCL_CLOSE' }
   | { type: 'SDCL_TO_GALLERY'; session: string }
+  | { type: 'SDCL_STATE'; state: NodeState }
 
 // The page is served by the host itself: both sides have the same origin.
 export function tellHost(message: FrameMessage) {

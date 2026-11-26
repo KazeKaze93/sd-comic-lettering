@@ -75,7 +75,16 @@ Text that is placed automatically (the sound effects, the caption and the drawn 
 
 ### ComfyUI
 
-Add the `Comic Lettering` node (category `image/postprocessing`) between `VAE Decode` and `Save Image`.
+Add the `Comic Lettering` node (category `image/postprocessing`) between `VAE Decode` and `Save Image`. Its widgets are the three texts and the whole look; it letters every image that passes through it.
+
+The node also has the editor described above, behind its `Open editor` button:
+
+1. Run the workflow once, so the node has seen an image.
+2. Press `Open editor` on the node. The editor opens over ComfyUI with that image, as it came into the node.
+3. Edit as in the A1111 family: texts, look, dragging, areas, bubble templates. Every change is written back into the node: the texts and the look into its widgets, what was placed and drawn by hand into its hidden `layout` field.
+4. The next run of the workflow gives the picture the editor showed. `Save` in the editor writes it into ComfyUI's output folder straight away, named `ComfyUI_lettered_00001_.png` and so on.
+
+In ComfyUI the node is the memory, so the workflow file carries everything and `user_settings.json` is not used. What was placed and drawn by hand is kept as positions on the image: with a random seed the next image gets them in the same places. With a batch, the editor shows the first image and the layout goes onto all of them. `Letter every new image` and `To gallery` do not exist here: the node letters every run by itself.
 
 ### CLI
 

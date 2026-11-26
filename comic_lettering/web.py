@@ -276,14 +276,15 @@ def options_payload():
     }
 
 
-def ui_html():
-    """The built page with every relative asset address turned into a host file address.
+def ui_html(base=None):
+    """The built page with every relative asset address turned into an address of the host.
 
+    base: where the host serves ui/dist from; the A1111 file route by default.
     A fresh ?v= on each call keeps the browser from showing an old build.
     """
     with io.open(os.path.join(BASE_DIR, "ui", "dist", "index.html"), encoding="utf-8") as handle:
         html = handle.read()
-    base = "/file=extensions/%s/ui/dist" % EXTENSION
+    base = base or "/file=extensions/%s/ui/dist" % EXTENSION
     stamp = str(int(time.time()))
 
     def swap(match):
@@ -293,8 +294,84 @@ def ui_html():
     return re.sub(r'(?P<attr>\b(?:src|href))=(?P<q>["\'])(?P<path>\./[^"\']+)(?P=q)', swap, html)
 
 
+MISSING_PAGE = "<p>Comic Lettering: ui/dist is missing. Build the page (npm run build in ui/).</p>"
+GONE = "The image is gone from memory. Load it again."
+
+# What each route answers, as (status, payload), free of any web framework: the A1111
+# family serves them through FastAPI, ComfyUI through aiohttp.
+
+
+def answer_settings(body):
+    auto = None
+    if isinstance(body.get("auto"), dict):
+        auto = dict(AUTO_DEFAULTS)
+        auto["enabled"] = bool(body["auto"].get("enabled"))
+        for key in ("text", "caption", "sfx"):
+            if isinstance(body["auto"].get(key), str):
+                auto[key] = body["auto"][key]
+    save_settings(body.get("settings") or {}, auto)
+    return 200, {"ok": True}
+
+
+def answer_upload(data, name):
+    if not data:
+        return 400, {"error": "no image"}
+    try:
+        image = Image.open(io.BytesIO(data))
+        image.load()
+    except Exception:
+        return 400, {"error": "not an image"}
+    session = new_session(image, name)
+    return 200, {"session": session["id"], "width": image.width, "height": image.height}
+
+
+def answer_last(body):
+    """A session from the clean copy of an image of the last generation of a tab (or of a ComfyUI node)."""
+    tab = str(body.get("tab") or "txt2img")
+    images = LAST_CLEAN.get(tab) or []
+    index, count = body.get("index"), body.get("count")
+    if not isinstance(index, int) or not isinstance(count, int):
+        return 404, {"error": "no such image"}
+    # A gallery with more images than were generated starts with their grid.
+    index -= max(0, count - len(images))
+    if index < 0 or index >= len(images):
+        return 404, {"error": "no such image"}
+    # The same image as the page already has: it keeps its session and what was done there.
+    origin = "%s:%d:%d" % (tab, GENERATION.get(tab, 0), index)
+    if body.get("known") == origin and get_session(str(body.get("session") or "")) is not None:
+        return 200, {"same": True, "origin": origin}
+    image = images[index]
+    session = new_session(image, "generation")
+    return 200, {"session": session["id"], "width": image.width, "height": image.height, "origin": origin}
+
+
+def answer_render(body):
+    session = get_session(str(body.get("session") or ""))
+    if session is None:
+        return 404, {"error": GONE}
+    try:
+        return 200, render_session(session, body.get("text"), body.get("caption"), body.get("sfx"), body.get("numbers"),
+                                   body.get("settings") or {}, body.get("pins"), body.get("regions"))
+    except Exception as error:  # report it on the page instead of a bare 500
+        return 500, {"error": "%s: %s" % (type(error).__name__, error)}
+
+
+def answer_save(body, saver, tab):
+    session = get_session(str(body.get("session") or ""))
+    if session is None:
+        return 404, {"error": GONE}
+    try:
+        if saver:
+            path = saver(session["result"] or session["image"], session["parameters"], tab)
+        else:
+            path = save_session(session, os.path.join(BASE_DIR, "saved"))
+    except Exception as error:  # the host's own saving can fail in its own ways: say so on the page
+        return 500, {"error": "Could not save: %s" % error}
+    return 200, {"path": os.path.normpath(str(path))}
+
+
 def register(app, saver=None):
-    """Add the routes to the host's FastAPI app.
+    """Add the routes to the FastAPI app of an A1111-family host.
 
     saver(image, parameters, tab) saves an image the way the host saves its own and returns
     the file's path. Without one, images go into a "saved" folder beside this package.
@@ -303,16 +380,15 @@ def register(app, saver=None):
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
     from starlette.concurrency import run_in_threadpool
 
-    def fail(message, status=400):
-        return JSONResponse({"error": message}, status_code=status)
+    def reply(answer):
+        return JSONResponse(answer[1], status_code=answer[0])
 
     @app.get("/comic_lettering/ui")
     async def page():
         try:
             return HTMLResponse(ui_html(), headers={"Cache-Control": "no-store"})
         except (IOError, OSError):
-            return HTMLResponse("<p>Comic Lettering: ui/dist is missing. Build the page (npm run build in ui/).</p>",
-                                status_code=500)
+            return HTMLResponse(MISSING_PAGE, status_code=500)
 
     @app.get("/comic_lettering/options")
     async def options():
@@ -322,91 +398,122 @@ def register(app, saver=None):
     async def font(name: str = ""):
         path = list_fonts().get(name)
         if not path or not os.path.isfile(path):
-            return fail("unknown font", 404)
+            return reply((404, {"error": "unknown font"}))
         return FileResponse(path, headers={"Cache-Control": "max-age=86400"})
 
     @app.post("/comic_lettering/settings")
     async def settings(request: Request):
-        body = await request.json()
-        auto = None
-        if isinstance(body.get("auto"), dict):
-            auto = dict(AUTO_DEFAULTS)
-            auto["enabled"] = bool(body["auto"].get("enabled"))
-            for key in ("text", "caption", "sfx"):
-                if isinstance(body["auto"].get(key), str):
-                    auto[key] = body["auto"][key]
-        await run_in_threadpool(save_settings, body.get("settings") or {}, auto)
-        return JSONResponse({"ok": True})
+        return reply(await run_in_threadpool(answer_settings, await request.json()))
 
     @app.post("/comic_lettering/session")
     async def upload(request: Request, name: str = ""):
-        data = await request.body()
-        if not data:
-            return fail("no image")
-        try:
-            image = Image.open(io.BytesIO(data))
-            image.load()
-        except Exception:
-            return fail("not an image")
-        session = new_session(image, name)
-        return JSONResponse({"session": session["id"], "width": image.width, "height": image.height})
+        return reply(answer_upload(await request.body(), name))
 
     @app.post("/comic_lettering/session/last")
     async def last(request: Request):
-        """A session from the clean copy of an image of the last generation."""
-        body = await request.json()
-        tab = str(body.get("tab") or "txt2img")
-        images = LAST_CLEAN.get(tab) or []
-        index, count = body.get("index"), body.get("count")
-        if not isinstance(index, int) or not isinstance(count, int):
-            return fail("no such image", 404)
-        # A gallery with more images than were generated starts with their grid.
-        index -= max(0, count - len(images))
-        if index < 0 or index >= len(images):
-            return fail("no such image", 404)
-        # The same image as the page already has: it keeps its session and what was done there.
-        origin = "%s:%d:%d" % (tab, GENERATION.get(tab, 0), index)
-        if body.get("known") == origin and get_session(str(body.get("session") or "")) is not None:
-            return JSONResponse({"same": True, "origin": origin})
-        image = images[index]
-        session = new_session(image, "generation")
-        return JSONResponse({"session": session["id"], "width": image.width, "height": image.height, "origin": origin})
+        return reply(answer_last(await request.json()))
 
     @app.get("/comic_lettering/image/{session_id}/{which}")
     async def image_bytes(session_id: str, which: str):
         session = get_session(session_id)
         if session is None or which not in ("original", "result"):
-            return fail("unknown image", 404)
+            return reply((404, {"error": "unknown image"}))
         data = await run_in_threadpool(session_png, session, which)
         return Response(data, media_type="image/png", headers={"Cache-Control": "no-store"})
 
     @app.post("/comic_lettering/render")
     async def render(request: Request):
-        body = await request.json()
-        session = get_session(str(body.get("session") or ""))
-        if session is None:
-            return fail("The image is gone from memory. Load it again.", 404)
-        try:
-            payload = await run_in_threadpool(render_session, session, body.get("text"), body.get("caption"),
-                                              body.get("sfx"), body.get("numbers"), body.get("settings") or {},
-                                              body.get("pins"), body.get("regions"))
-        except Exception as error:  # report it on the page instead of a bare 500
-            return fail("%s: %s" % (type(error).__name__, error), 500)
-        return JSONResponse(payload)
+        return reply(await run_in_threadpool(answer_render, await request.json()))
 
     @app.post("/comic_lettering/save")
     async def save(request: Request):
         body = await request.json()
-        session = get_session(str(body.get("session") or ""))
-        if session is None:
-            return fail("The image is gone from memory. Load it again.", 404)
         tab = "img2img" if body.get("tab") == "img2img" else "txt2img"
+        return reply(await run_in_threadpool(answer_save, body, saver, tab))
+
+
+def register_aiohttp(routes, saver=None):
+    """Add the same routes to an aiohttp route table: ComfyUI's PromptServer.instance.routes.
+
+    The page's files are served from ui/dist by a route of their own, so they are not in the
+    folder ComfyUI loads node scripts from (it would run the page's script on its own page).
+    """
+    import asyncio
+    import mimetypes
+
+    from aiohttp import web as aio
+
+    static = "/comic_lettering/static"
+    dist = os.path.realpath(os.path.join(BASE_DIR, "ui", "dist"))
+
+    def reply(answer):
+        return aio.json_response(answer[1], status=answer[0])
+
+    async def threaded(function, *args):
+        return await asyncio.get_running_loop().run_in_executor(None, function, *args)
+
+    async def body_of(request):
         try:
-            if saver:
-                image = session["result"] or session["image"]
-                path = await run_in_threadpool(saver, image, session["parameters"], tab)
-            else:
-                path = await run_in_threadpool(save_session, session, os.path.join(BASE_DIR, "saved"))
-        except Exception as error:  # the host's own saving can fail in its own ways: say so on the page
-            return fail("Could not save: %s" % error, 500)
-        return JSONResponse({"path": os.path.normpath(str(path))})
+            body = await request.json()
+        except Exception:
+            body = None
+        return body if isinstance(body, dict) else {}
+
+    @routes.get("/comic_lettering/ui")
+    async def page(request):
+        try:
+            return aio.Response(text=ui_html(static), content_type="text/html", headers={"Cache-Control": "no-store"})
+        except (IOError, OSError):
+            return aio.Response(text=MISSING_PAGE, content_type="text/html", status=500)
+
+    @routes.get(static + "/{path:.*}")
+    async def files(request):
+        path = os.path.realpath(os.path.join(dist, request.match_info["path"]))
+        if not path.startswith(dist + os.sep) or not os.path.isfile(path):
+            return reply((404, {"error": "no such file"}))
+        kind = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        if path.endswith(".js"):
+            kind = "text/javascript"  # Windows sometimes has this as text/plain, and a module then will not load
+        with open(path, "rb") as handle:
+            return aio.Response(body=handle.read(), content_type=kind, headers={"Cache-Control": "no-cache"})
+
+    @routes.get("/comic_lettering/options")
+    async def options(request):
+        return aio.json_response(await threaded(options_payload), headers={"Cache-Control": "no-store"})
+
+    @routes.get("/comic_lettering/font")
+    async def font(request):
+        path = list_fonts().get(request.query.get("name", ""))
+        if not path or not os.path.isfile(path):
+            return reply((404, {"error": "unknown font"}))
+        return aio.FileResponse(path, headers={"Cache-Control": "max-age=86400"})
+
+    @routes.post("/comic_lettering/settings")
+    async def settings(request):
+        return reply(await threaded(answer_settings, await body_of(request)))
+
+    @routes.post("/comic_lettering/session")
+    async def upload(request):
+        return reply(answer_upload(await request.read(), request.query.get("name", "")))
+
+    @routes.post("/comic_lettering/session/last")
+    async def last(request):
+        return reply(answer_last(await body_of(request)))
+
+    @routes.get("/comic_lettering/image/{session_id}/{which}")
+    async def image_bytes(request):
+        session = get_session(request.match_info["session_id"])
+        which = request.match_info["which"]
+        if session is None or which not in ("original", "result"):
+            return reply((404, {"error": "unknown image"}))
+        data = await threaded(session_png, session, which)
+        return aio.Response(body=data, content_type="image/png", headers={"Cache-Control": "no-store"})
+
+    @routes.post("/comic_lettering/render")
+    async def render(request):
+        return reply(await threaded(answer_render, await body_of(request)))
+
+    @routes.post("/comic_lettering/save")
+    async def save(request):
+        body = await body_of(request)
+        return reply(await threaded(answer_save, body, saver, str(body.get("tab") or "")))

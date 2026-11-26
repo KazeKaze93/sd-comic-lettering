@@ -13,6 +13,7 @@ const SOURCES: { value: Source; label: string }[] = [
 
 function TopBar() {
   const embedded = useStore((state) => state.embedded)
+  const comfy = useStore((state) => state.comfy)
   const source = useStore((state) => state.source)
   const slot = useStore((state) => state.slots[state.source])
   const showOriginal = useStore((state) => state.showOriginal)
@@ -40,7 +41,7 @@ function TopBar() {
       <Button disabled={!slot} onClick={() => void save()} title="Save the way the host saves its own images: same folder, file names and format">
         Save
       </Button>
-      {embedded && (
+      {embedded && !comfy && (
         <Button
           disabled={!slot}
           onClick={() => slot && tellHost({ type: 'SDCL_TO_GALLERY', session: slot.session })}
@@ -80,7 +81,7 @@ export default function App() {
     const stop = onHostMessage((message) => {
       if (message.type === 'SDCL_INIT') {
         document.documentElement.dataset.theme = message.theme
-        void useStore.getState().hostOpened(message.image)
+        void useStore.getState().hostOpened(message.image, message.node)
       }
     })
     void useStore

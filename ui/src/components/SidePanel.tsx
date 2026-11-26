@@ -327,6 +327,7 @@ export function SidePanel() {
   const lookOf = useStore((state) => state.lookOf)
   const auto = useStore((state) => state.auto)
   const embedded = useStore((state) => state.embedded)
+  const comfy = useStore((state) => state.comfy)
   const { setField, setSetting, setLookOf, setAuto, moveEffects, resetLook, render } = useStore.getState()
 
   const areas = useRef<Record<FieldName, HTMLTextAreaElement | null>>({ text: null, caption: null, sfx: null })
@@ -536,7 +537,7 @@ export function SidePanel() {
         )}
       </div>
 
-      {embedded && (
+      {embedded && !comfy && (
         <div className="border-t border-cl-border pt-3">
           <Toggle checked={auto} onChange={setAuto} label="Letter every new image while it is generated" />
           <p className="mt-1 text-[11px] leading-snug text-cl-muted">

@@ -802,6 +802,7 @@ export function Canvas() {
   const source = useStore((state) => state.source)
   const slot = useStore((state) => state.slots[state.source])
   const hostImage = useStore((state) => state.hostImage)
+  const comfy = useStore((state) => state.comfy)
   const loadFile = useStore((state) => state.loadFile)
 
   let body
@@ -810,7 +811,11 @@ export function Canvas() {
   else
     body = (
       <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cl-muted">
-        {hostImage ? 'The gallery is empty: generate an image first.' : 'Waiting for the image…'}
+        {comfy
+          ? 'This node has no image yet. Run the workflow once, then open the editor again. Or letter a file of yours under Own image.'
+          : hostImage
+            ? 'The gallery is empty: generate an image first.'
+            : 'Waiting for the image…'}
       </div>
     )
 
