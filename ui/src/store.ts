@@ -39,8 +39,11 @@ interface State {
   status: string
   warning: boolean
   error: string | null
+  /** Whether there is a step to take back, and one to do again. */
+  canUndo: boolean
+  canRedo: boolean
 
-  start: (embedded: boolean) => Promise<void>
+  start:(embedded: boolean) => Promise<void>
   setSource: (source: Source) => void
   hostOpened: (image: HostImage, node?: NodeState) => Promise<void>
   loadFile: (file: Blob, name: string) => Promise<void>
@@ -78,13 +81,49 @@ interface State {
   /** Take back the last thing drawn in an area; an area left with nothing painted goes. */
   undoShape: (id: string) => void
   resetLook: (keepFonts: boolean) => void
-  render: () => Promise<void>
+  /** `record: false` for a render nobody's edit caused (another image shown): it is no step to take back. */
+  render: (options?: { record?: boolean }) => Promise<void>
   save: () => Promise<void>
+  /** Take back the last change of the texts, the look, a place or an area; and do it again. */
+  undo: () => void
+  redo: () => void
 }
+
+/** What undo goes back to. The texts and the look are the editor's; places and areas are an image's. */
+interface HistoryEntry {
+  text: string
+  caption: string
+  sfx: string
+  settings: Settings
+  source: Source
+  session: string
+  pins: Slot['pins']
+  regions: Region[]
+}
+
+const HISTORY_LIMIT = 50
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 let rendering = false
 let renderAgain = false
+// One timeline for both images: the texts and the look are shared, so two would undo each other's changes.
+let past: HistoryEntry[] = []
+let future: HistoryEntry[] = []
+let replaying = false // a render caused by undo/redo: never recorded
+let suppressRecord = false // a render caused by setSource / hostOpened / loadFile: never recorded
+
+/** A value as text with its keys in order, to tell whether two hold the same. */
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined)
+    return `{${entries
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stable(item)}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
 
 function slotOf(created: NewSession): Slot {
   return {
@@ -148,6 +187,40 @@ export const useStore = create<State>((set, get) => {
 
   const fail = (error: unknown) => set({ busy: false, error: error instanceof Error ? error.message : String(error) })
 
+  const syncHistoryFlags = () => set({ canUndo: past.length > 0, canRedo: future.length > 0 })
+
+  /** Everything undo can bring back, as it stands now. */
+  const liveEntry = (): HistoryEntry => {
+    const { text, caption, sfx, settings, source, slots } = get()
+    const slot = slots[source]
+    return { text, caption, sfx, settings, source, session: slot?.session ?? '', pins: slot?.pins ?? {}, regions: slot?.regions ?? [] }
+  }
+
+  const restore = (entry: HistoryEntry) => {
+    set((state) => {
+      const slot = state.slots[entry.source]
+      // Places and areas go back only onto the image they were made on.
+      const slots =
+        slot && slot.session === entry.session
+          ? { ...state.slots, [entry.source]: { ...slot, pins: entry.pins, regions: entry.regions } }
+          : state.slots
+      const current = slots[state.source]
+      return {
+        text: entry.text,
+        caption: entry.caption,
+        sfx: entry.sfx,
+        settings: entry.settings,
+        slots,
+        region: current?.regions.some((region) => region.id === state.region) ? state.region : null,
+        selected: current?.items.some((item) => item.id === state.selected) ? state.selected : null,
+      }
+    })
+    replaying = true
+    syncHistoryFlags()
+    void get().render()
+    persist()
+  }
+
   return {
     options: null,
     embedded: false,
@@ -174,8 +247,10 @@ export const useStore = create<State>((set, get) => {
     status: '',
     warning: false,
     error: null,
+    canUndo: false,
+    canRedo: false,
 
-    start: async (embedded) => {
+    start:async (embedded) => {
       try {
         const options = await api.options()
         set({
@@ -198,13 +273,27 @@ export const useStore = create<State>((set, get) => {
     setSource: (source) => {
       const slot = get().slots[source]
       set({ source, error: null, status: slot?.status ?? '', warning: slot?.warning ?? false })
-      void get().render()
+      void get().render({ record: false })
     },
 
     hostOpened: async (image, node) => {
       set({ hostImage: image, error: null })
       if (node) {
         // What the node holds wins over what the page had: its widgets may have been changed by hand.
+        const now = get()
+        const held = now.slots.generation
+        const mine = {
+          texts: { text: now.text, caption: now.caption, sfx: now.sfx },
+          settings: now.settings,
+          layout: held ? { pins: held.pins, regions: held.regions } : nodeLayout,
+        }
+        const theirs = { texts: node.texts, settings: { ...(now.options?.defaults ?? {}), ...node.settings }, layout: node.layout }
+        if (stable(mine) !== stable(theirs)) {
+          // The node was changed outside the editor: the steps taken here no longer lead back to it.
+          past = []
+          future = []
+          syncHistoryFlags()
+        }
         nodeLayout = node.layout
         set((state) => ({
           comfy: true,
@@ -229,7 +318,7 @@ export const useStore = create<State>((set, get) => {
           if ('same' in answer) {
             // The image that is already open: what was placed and drawn on it stays.
             set({ busy: false })
-            await get().render()
+            await get().render({ record: false })
             return
           }
           created = answer
@@ -257,18 +346,18 @@ export const useStore = create<State>((set, get) => {
             generation: { ...slotOf(created), origin: created.origin, ...(node ? { pins: node.layout.pins, regions: node.layout.regions } : {}) },
           },
         }))
-        await get().render()
+        await get().render({ record: false })
       } catch (error) {
         fail(error)
       }
     },
 
-    loadFile: async (file, name) => {
+    loadFile:async (file, name) => {
       set({ busy: true, error: null })
       try {
         const created = await api.upload(file, name)
         set((state) => ({ busy: false, slots: { ...state.slots, own: slotOf(created) } }))
-        await get().render()
+        await get().render({ record: false })
       } catch (error) {
         fail(error)
       }
@@ -470,7 +559,9 @@ export const useStore = create<State>((set, get) => {
       void get().render()
     },
 
-    render: async () => {
+    render: async (options) => {
+      // Kept outside the call: a render that waits for the one under way is run again without its arguments.
+      if (options?.record === false) suppressRecord = true
       const state = get()
       const slot = state.slots[state.source]
       if (!slot) return
@@ -480,7 +571,40 @@ export const useStore = create<State>((set, get) => {
       }
       const { text, caption, sfx, settings, source } = state
       const signature = JSON.stringify([text, caption, sfx, settings, slot.pins, slot.regions])
-      if (signature === slot.applied) return
+      if (signature === slot.applied) {
+        replaying = false
+        suppressRecord = false
+        return
+      }
+      if (!replaying && !suppressRecord && slot.applied !== '') {
+        // What the image showed until now is the step to go back to.
+        const [oldText, oldCaption, oldSfx, oldSettings, oldPins, oldRegions] = JSON.parse(slot.applied) as [
+          string,
+          string,
+          string,
+          Settings,
+          Slot['pins'],
+          Region[],
+        ]
+        const entry: HistoryEntry = {
+          text: oldText,
+          caption: oldCaption,
+          sfx: oldSfx,
+          settings: oldSettings,
+          source,
+          session: slot.session,
+          pins: oldPins,
+          regions: oldRegions,
+        }
+        const top = past[past.length - 1]
+        // After a render that failed the same step would be kept twice.
+        if (!top || JSON.stringify(top) !== JSON.stringify(entry)) past.push(entry)
+        if (past.length > HISTORY_LIMIT) past.splice(0, past.length - HISTORY_LIMIT)
+        future = []
+      }
+      replaying = false
+      suppressRecord = false
+      syncHistoryFlags()
       rendering = true
       set({ busy: true, error: null })
       try {
@@ -517,6 +641,21 @@ export const useStore = create<State>((set, get) => {
           void get().render()
         }
       }
+    },
+
+    undo: () => {
+      const entry = past.pop()
+      if (!entry) return
+      future.push(liveEntry())
+      restore(entry)
+    },
+
+    redo: () => {
+      const entry = future.pop()
+      if (!entry) return
+      past.push(liveEntry())
+      if (past.length > HISTORY_LIMIT) past.splice(0, past.length - HISTORY_LIMIT)
+      restore(entry)
     },
 
     save: async () => {

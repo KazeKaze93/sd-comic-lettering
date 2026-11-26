@@ -19,17 +19,47 @@ export function Button({
   disabled?: boolean
   variant?: 'plain' | 'quiet'
 }) {
-  const look =
-    variant === 'quiet'
-      ? 'text-cl-muted hover:text-cl-text'
-      : `border border-cl-border ${active ? 'bg-cl-accent/20 text-cl-accent-text' : 'bg-cl-raised hover:border-cl-muted'}`
   return (
     <button
       type="button"
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs disabled:opacity-40 ${look}`}
+      className={`inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs disabled:opacity-40 ${buttonLook(variant, active)}`}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** How a button is painted: with a frame, or quiet until pointed at; an active one stands out. */
+function buttonLook(variant: 'plain' | 'quiet', active?: boolean) {
+  if (variant === 'quiet' && !active) return 'text-cl-muted hover:text-cl-text'
+  return `border border-cl-border ${active ? 'bg-cl-accent/20 text-cl-accent-text' : 'bg-cl-raised hover:border-cl-muted'}`
+}
+
+/** A square button that shows only an icon; `label` is what it is called and its tooltip. */
+export function IconButton({
+  label,
+  onClick,
+  disabled,
+  active,
+  children,
+}: {
+  label: string
+  onClick?: () => void
+  disabled?: boolean
+  active?: boolean
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded disabled:opacity-40 ${buttonLook('quiet', active)}`}
     >
       {children}
     </button>

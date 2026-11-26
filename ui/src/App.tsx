@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { onHostMessage, tellHost } from './bridge'
 import { Canvas } from './components/Canvas'
 import { SidePanel } from './components/SidePanel'
-import { Button, Segmented, Toggle } from './components/controls'
+import { Button, IconButton, Segmented, Toggle } from './components/controls'
 import { useStore } from './store'
 import type { Source } from './types'
 
@@ -19,6 +19,14 @@ function isTextEntry(target: EventTarget | null): target is HTMLElement {
   return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type)
 }
 
+function HistoryIcon({ d }: { d: string }) {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  )
+}
+
 function TopBar() {
   const embedded = useStore((state) => state.embedded)
   const comfy = useStore((state) => state.comfy)
@@ -27,7 +35,9 @@ function TopBar() {
   const showOriginal = useStore((state) => state.showOriginal)
   const showFrames = useStore((state) => state.showFrames)
   const pinned = slot ? Object.keys(slot.pins).length : 0
-  const { setSource, setShowOriginal, setShowFrames, save, clearPins } = useStore.getState()
+  const canUndo = useStore((state) => state.canUndo)
+  const canRedo = useStore((state) => state.canRedo)
+  const { setSource, setShowOriginal, setShowFrames, save, clearPins, undo, redo } = useStore.getState()
   return (
     <header className="flex shrink-0 items-center gap-2 border-b border-cl-border bg-cl-surface px-3 py-2">
       <span className="text-sm font-medium">Comic Lettering</span>
@@ -36,6 +46,12 @@ function TopBar() {
           <Segmented value={source} options={SOURCES} onChange={setSource} />
         </div>
       )}
+      <IconButton label="Undo (Ctrl+Z)" disabled={!canUndo} onClick={undo}>
+        <HistoryIcon d="M5 3L2 6l3 3M2 6h7.5a3.5 3.5 0 010 7H7" />
+      </IconButton>
+      <IconButton label="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={redo}>
+        <HistoryIcon d="M11 3l3 3-3 3M14 6H6.5a3.5 3.5 0 000 7H9" />
+      </IconButton>
       <span className="flex-1" />
       {pinned > 0 && (
         <Button onClick={() => clearPins()} title="Hand everything placed by hand back to the automatic placement">
@@ -90,6 +106,8 @@ export default function App() {
       if (message.type === 'SDCL_INIT') {
         document.documentElement.dataset.theme = message.theme
         void useStore.getState().hostOpened(message.image, message.node)
+        // The keys reach this page without a click on it first.
+        window.focus()
       }
     })
     void useStore
@@ -97,6 +115,20 @@ export default function App() {
       .start(embedded)
       .then(() => tellHost({ type: 'SDCL_READY' }))
     const key = (event: KeyboardEvent) => {
+      // Undo and redo, by the key's place so that any keyboard layout works; a text field keeps its own.
+      const mod = event.ctrlKey || event.metaKey
+      if (mod && !isTextEntry(event.target)) {
+        if (event.code === 'KeyZ' && !event.shiftKey) {
+          event.preventDefault()
+          useStore.getState().undo()
+          return
+        }
+        if ((event.code === 'KeyZ' && event.shiftKey) || event.code === 'KeyY') {
+          event.preventDefault()
+          useStore.getState().redo()
+          return
+        }
+      }
       if (event.key !== 'Escape' || event.defaultPrevented) return
       if (isTextEntry(event.target)) {
         event.preventDefault()
