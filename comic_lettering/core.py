@@ -487,7 +487,7 @@ def _energy(rgb):
     return _integral(energy)
 
 
-def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=None):
+def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=None, turn=None):
     """A place for a box: (x, y, clear, score).
 
     Candidates clear of the static obstacles (bubbles, characters) and not among the
@@ -498,6 +498,11 @@ def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=No
     while any other is left: the search widens to every clear place, then to places
     on a character, where `heavy` (heads, bubbles) counts several times more than the
     rest. clear tells whether a clear place existed; score how much is covered if not.
+
+    turn: an arrangement number, used instead of rng. The usable places are reduced to a
+    few anchors that lie far apart, and turn picks one of them in rotation, so the next
+    number always gives a visibly different place. With fewer than three such places
+    clear of the characters, places on a character (never a head first) join in.
     static, taken and heavy are summed-area tables; taken and heavy may be None.
     """
     box_w, box_h = int(box_w), int(box_h)
@@ -520,11 +525,36 @@ def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=No
         penalty = penalty + 6000.0 * boxes(heavy)
     clear = np.nonzero(blocked < 0.002)[0]
     found = len(clear) > 0
-    target_x, target_y = rng.random() * width, rng.random() * height
+
+    def centers(candidates):
+        return xs[candidates % len(xs)] + box_w / 2.0, ys[candidates // len(xs)] + box_h / 2.0
+
+    def anchors(pool, limit=6):
+        """Up to `limit` places of the pool that lie far apart, the calmest one first."""
+        px, py = centers(pool)
+        chosen = [int(np.argmin(penalty[pool]))]
+        apart = np.hypot(px - px[chosen[0]], py - py[chosen[0]])
+        while len(chosen) < limit:
+            far = int(np.argmax(apart))
+            if apart[far] < 0.14 * min(width, height):
+                break  # what is left is too close to count as another place
+            chosen.append(far)
+            apart = np.minimum(apart, np.hypot(px - px[far], py - py[far]))
+        return [(float(px[i]), float(py[i])) for i in chosen]
+
+    if turn is None:
+        target_x, target_y = rng.random() * width, rng.random() * height
+    else:
+        spots = anchors(clear[cost[clear] <= np.quantile(cost[clear], 0.85)]) if found else []
+        if len(spots) < 3:
+            least = np.argsort(penalty)[:max(1, int(penalty.size * 0.12))]
+            extra = [s for s in anchors(least) if all(np.hypot(s[0] - o[0], s[1] - o[1])
+                                                    >= 0.14 * min(width, height) for o in spots)]
+            spots = spots + extra
+        target_x, target_y = spots[turn % len(spots)]
 
     def nearest(candidates):
-        center_x = xs[candidates % len(xs)] + box_w / 2.0
-        center_y = ys[candidates // len(xs)] + box_h / 2.0
+        center_x, center_y = centers(candidates)
         return candidates[np.argsort((center_x - target_x) ** 2 + (center_y - target_y) ** 2)]
 
     # Tiers of candidates, best first: calm and clear, any clear place, then anywhere,
@@ -532,8 +562,12 @@ def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=No
     # effects never share a place while there is room left anywhere.
     tiers = []
     if found:
-        tiers.append(nearest(clear[cost[clear] <= np.quantile(cost[clear], 0.7)]))
+        tiers.append(nearest(clear[cost[clear] <= np.quantile(cost[clear], 0.85 if turn is not None else 0.7)]))
         tiers.append(nearest(clear))
+    if turn is not None:
+        # The anchor may be a place on a character: let the nearest low-cover place win.
+        least = np.argsort(penalty)[:max(1, int(penalty.size * 0.12))]
+        tiers.insert(0, nearest(np.union1d(tiers[0], least) if tiers else least)[:1])
     tiers.append(np.argsort(penalty))
     score = 0.0 if found else float(penalty.min())
     pick = int(tiers[0][0])
@@ -579,7 +613,6 @@ def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy, precious
         # Two random streams, both independent of the look: one for the size and tilt,
         # one for the place. Changing fonts, colors or moods then moves nothing.
         rng = random.Random(style.sfx_seed * 1000003 + index)
-        place = random.Random(style.sfx_seed * 7919 + index * 31 + 1)
         size = max(10, int(style.sfx_size / 100.0 * height * rng.uniform(0.85, 1.15)))
         seed = style.sfx_seed + index * 101
         repeat = REPEAT.match(effect)
@@ -592,7 +625,7 @@ def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy, precious
         nominal_w = int(min(width * 0.9, (units + 0.8) * size))
         nominal_h = int(min(height * 0.9, size * (1.4 if count == 1 else 0.75 * count + 0.8)))
         x, y, _, _ = _calm_spot(energy, static_table, _integral(taken), nominal_w, nominal_h, width, height,
-                                place, heavy)
+                                None, heavy, turn=style.sfx_seed + index)
         if count > 1:
             # "FAP x5": the word several times in a ragged column.
             rows = []
