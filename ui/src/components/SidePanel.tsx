@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { api } from '../api'
+import { useRef, useState, type ReactNode } from 'react'
+import { useAssetStyles } from '../assetStyles'
 import { lineFates } from '../lines'
 import { useStore } from '../store'
 import { BUBBLE_SHAPES, BUBBLE_TAILS } from '../geometry'
 import { BubblesField } from './BubblesField'
+import { MarksBar } from './MarksBar'
 import type { BubbleShape, BubbleTail, Region, RegionKind, SectionId, Tool } from '../types'
 import { Button, ColorField, Icon, IconButton, Section, Segmented, Select, Slider, Toggle } from './controls'
 
@@ -57,12 +58,6 @@ const CUSTOM_MOOD: SliderSpec[] = [
   { key: 'line_shift', label: 'Lines shift', hint: 'Lines move sideways', min: 0, max: 1, step: 0.05 },
   { key: 'line_spacing', label: 'Line spacing', hint: 'Space between lines', min: 0.7, max: 1.6, step: 0.02 },
 ]
-
-/** The part of the panel each text field is in. */
-const SECTION_OF: Record<FieldName, SectionId> = { text: 'bubbles', caption: 'caption', sfx: 'sfx' }
-
-/** How many mark buttons show before "All marks" is pressed. */
-const FEW_MARKS = 8
 
 const KINDS: { value: RegionKind; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -304,31 +299,13 @@ export function SidePanel() {
   const { setField, setSetting, setAuto, setOpen, moveEffects, resetLook, render } = useStore.getState()
 
   const areas = useRef<Record<FieldName, HTMLTextAreaElement | null>>({ text: null, caption: null, sfx: null })
-  // Bubbles is the part that is unfolded at the start.
-  const lastField = useRef<FieldName>('text')
   const [more, setMore] = useState<Record<FieldName, boolean>>({ text: false, caption: false, sfx: false })
-  const [allMarks, setAllMarks] = useState(false)
   const [keepFonts, setKeepFonts] = useState(true)
-
-  // Every font of the lists, so an entry can be drawn in its own font.
-  const families = useMemo(() => {
-    const map = new Map<string, string>()
-    options?.fonts.forEach((name, index) => map.set(name, `clf-${index}`))
-    return map
-  }, [options])
-  useEffect(() => {
-    if (!options) return
-    const style = document.createElement('style')
-    style.textContent = options.fonts
-      .map((name, index) => `@font-face{font-family:'clf-${index}';src:url('${api.fontUrl(name)}');font-display:swap}`)
-      .join('')
-    document.head.appendChild(style)
-    return () => style.remove()
-  }, [options])
+  // The fonts and the shapes of the marks, for the lists and the buttons to draw with.
+  const fontOf = useAssetStyles(options)
 
   if (!options) return null
-  const fontOf = (name: string) => (families.has(name) ? `'${families.get(name)}', sans-serif` : undefined)
-  const list = (key: string, label: string, choices: string[], fonts = false) => (
+  const list =(key: string, label: string, choices: string[], fonts = false) => (
     <Select
       key={key}
       label={label}
@@ -339,56 +316,38 @@ export function SidePanel() {
     />
   )
 
-  /** Put a mark where the cursor is in the text field used last. */
-  const insert = (mark: string) => {
-    const name = lastField.current
-    // The field may be folded away: show where the mark went.
-    setOpen(SECTION_OF[name], true)
-    const area = areas.current[name]
-    const value = fields[name]
-    const start = area?.selectionStart ?? value.length
-    const end = area?.selectionEnd ?? start
-    const before = value.slice(0, start)
-    const lead = before && !/\s$/.test(before) ? ' ' : ''
-    setField(name, before + lead + mark + value.slice(end))
-    requestAnimationFrame(() => {
-      const field = areas.current[name]
-      if (!field) return
-      field.focus()
-      field.selectionStart = field.selectionEnd = before.length + lead.length + mark.length
-    })
-  }
-
-  const field = (name: FieldName, hint: string, rows: number) => (
-    <textarea
-      ref={(element) => {
-        areas.current[name] = element
-      }}
+  /** The bar over a text field: bigger words, marks, and emptying the field. */
+  const bar = (name: FieldName, label: string) => (
+    <MarksBar
+      label={label}
+      target={() => areas.current[name]}
       value={fields[name]}
-      rows={rows}
-      placeholder={hint}
-      spellCheck={false}
-      onFocus={() => {
-        lastField.current = name
-      }}
-      onChange={(event) => setField(name, event.target.value)}
-      onBlur={() => void render()}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void render()
-      }}
-      className="w-full resize-y rounded border border-cl-border bg-cl-raised px-2 py-1.5 text-sm placeholder:text-cl-muted"
-    />
-  )
-  const clear = (name: FieldName) => (
-    <Button
-      variant="quiet"
-      onClick={() => {
+      onChange={(next) => setField(name, next)}
+      onClear={() => {
         setField(name, '')
         void render()
       }}
-    >
-      Clear
-    </Button>
+    />
+  )
+  const field = (name: FieldName, label: string, hint: string, rows: number) => (
+    <div>
+      {bar(name, label)}
+      <textarea
+        ref={(element) => {
+          areas.current[name] = element
+        }}
+        value={fields[name]}
+        rows={rows}
+        placeholder={hint}
+        spellCheck={false}
+        onChange={(event) => setField(name, event.target.value)}
+        onBlur={() => void render()}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void render()
+        }}
+        className="block w-full resize-y rounded-b border border-cl-border bg-cl-raised px-2 py-1.5 text-sm placeholder:text-cl-muted"
+      />
+    </div>
   )
   /** The button that shows the rest of a kind's settings, and those settings. */
   const rest = (name: FieldName, children: ReactNode) => (
@@ -412,23 +371,23 @@ export function SidePanel() {
         summary={`${firstLine(fields.text)} · ${String(settings.font ?? '')}`}
         open={open.bubbles}
         onToggle={fold('bubbles')}
-        actions={clear('text')}
       >
-        <BubblesField
-          value={fields.text}
-          fates={lineFates(fields.text, slot?.applied || null, slot?.items ?? [], slot?.bubbles.length ?? 0, Boolean(settings.spill))}
-          onChange={(value) => setField('text', value)}
-          onBlurCommit={() => void render()}
-          onCtrlEnter={() => void render()}
-          onFocus={() => {
-            lastField.current = 'text'
-          }}
-          placeholder="One line per bubble. An empty line leaves a bubble empty."
-          rows={3}
-          textareaRef={(element) => {
-            areas.current.text = element
-          }}
-        />
+        <div>
+          {bar('text', 'Bubbles')}
+          <BubblesField
+            value={fields.text}
+            fates={lineFates(fields.text, slot?.applied || null, slot?.items ?? [], slot?.bubbles.length ?? 0, Boolean(settings.spill))}
+            onChange={(value) => setField('text', value)}
+            onBlurCommit={() => void render()}
+            onCtrlEnter={() => void render()}
+            placeholder="One line per bubble. An empty line leaves a bubble empty."
+            rows={3}
+            flatTop
+            textareaRef={(element) => {
+              areas.current.text = element
+            }}
+          />
+        </div>
         <div className="grid grid-cols-2 gap-2">
           {list('font', 'Font', options.fonts, true)}
           {list('bubble_colors', 'Colors', options.palettes)}
@@ -452,9 +411,8 @@ export function SidePanel() {
         summary={`${firstLine(fields.caption)} · ${String(settings.placement ?? '')}`}
         open={open.caption}
         onToggle={fold('caption')}
-        actions={clear('caption')}
       >
-        {field('caption', 'Text on the art, outside the bubbles.', 2)}
+        {field('caption', 'Caption', 'Text on the art, outside the bubbles.', 2)}
         <div className="grid grid-cols-2 gap-2">
           {list('caption_font', 'Font', [options.sameFont, ...options.fonts], true)}
           {list('caption_colors', 'Colors', options.palettes)}
@@ -487,15 +445,12 @@ export function SidePanel() {
         open={open.sfx}
         onToggle={fold('sfx')}
         actions={
-          <>
-            <Button variant="quiet" onClick={moveEffects} title="Put the effects somewhere else">
-              Shuffle
-            </Button>
-            {clear('sfx')}
-          </>
+          <Button variant="quiet" onClick={moveEffects} title="Put the effects somewhere else">
+            Shuffle
+          </Button>
         }
       >
-        {field('sfx', 'One per line: SLAP, THUD x3.', 2)}
+        {field('sfx', 'Sound effects', 'One per line: SLAP, THUD x3.', 2)}
         <div className="grid grid-cols-2 gap-2">
           {list('sfx_font', 'Font', options.fonts, true)}
           {list('sfx_colors', 'Colors', options.palettes)}
@@ -511,22 +466,6 @@ export function SidePanel() {
           </>,
         )}
       </Section>
-
-      <div className="flex flex-wrap items-center gap-1">
-        {(allMarks ? options.symbols : options.symbols.slice(0, FEW_MARKS)).map((mark) => (
-          <Button key={mark} onClick={() => insert(mark)} title="Insert at the cursor">
-            {mark}
-          </Button>
-        ))}
-        {options.symbols.length > FEW_MARKS && (
-          <Button variant="quiet" onClick={() => setAllMarks(!allMarks)}>
-            {allMarks ? 'Fewer' : `All ${options.symbols.length} marks`}
-          </Button>
-        )}
-        <span className="basis-full text-[11px] text-cl-muted">
-          Marks are drawn as shapes in the text's colors. *word* makes a word bigger.
-        </span>
-      </div>
 
       <Section
         id="cl-areas"

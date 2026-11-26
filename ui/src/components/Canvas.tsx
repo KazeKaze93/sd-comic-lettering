@@ -4,6 +4,7 @@ import { boxOf, bubbleShapes, placeHandles, turned, type Box, type CornerSide, t
 import { useStore } from '../store'
 import type { Pin, Region, SceneItem, Shape, Slot } from '../types'
 import { Button } from './controls'
+import { MarksBar } from './MarksBar'
 
 /** Keep receiving the pointer while it is down, where the browser allows it. */
 function capture(event: ReactPointerEvent) {
@@ -803,10 +804,12 @@ function AreaGrip({ region, slot, scale, view, frames }: { region: Region; slot:
 /** The text of the picked area, typed right where the area is. */
 function AreaField({ region, slot, scale }: { region: Region; slot: Slot; scale: number }) {
   const { changeRegion, removeRegion, pickRegion, render } = useStore.getState()
+  const field = useRef<HTMLTextAreaElement>(null)
   const box = boxOf(region.shapes)
   if (!box) return null
   const wide = 232
-  const tall = region.kind === 'keepout' ? 40 : 96
+  // With text: the bar of marks, two rows of text and the line under them.
+  const tall = region.kind === 'keepout' ? 40 : 124
   const left = Math.max(0, Math.min(box[0] * scale, slot.width * scale - wide))
   // Under the area, clear of its corner handle; above it when there is no room under, and
   // then above the turn knob too, which stands on a stem over the area.
@@ -823,21 +826,30 @@ function AreaField({ region, slot, scale }: { region: Region; slot: Slot; scale:
       onPointerDown={(event) => event.stopPropagation()}
     >
       {region.kind !== 'keepout' && (
-        <textarea
-          autoFocus
-          value={region.text}
-          rows={2}
-          spellCheck={false}
-          placeholder={region.kind === 'sfx' ? 'One effect: BOOM, THUD x3' : 'Text for this area'}
-          onChange={(event) => changeRegion(region.id, { text: event.target.value }, false)}
-          onBlur={() => void render()}
-          onKeyDown={(event) => {
-            event.stopPropagation()
-            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) done()
-            if (event.key === 'Escape') done()
-          }}
-          className="w-full resize-none rounded border border-cl-border bg-cl-raised px-2 py-1 text-sm text-cl-text placeholder:text-cl-muted"
-        />
+        <div>
+          <MarksBar
+            label="Area"
+            target={() => field.current}
+            value={region.text}
+            onChange={(next) => changeRegion(region.id, { text: next }, false)}
+          />
+          <textarea
+            ref={field}
+            autoFocus
+            value={region.text}
+            rows={2}
+            spellCheck={false}
+            placeholder={region.kind === 'sfx' ? 'One effect: BOOM, THUD x3' : 'Text for this area'}
+            onChange={(event) => changeRegion(region.id, { text: event.target.value }, false)}
+            onBlur={() => void render()}
+            onKeyDown={(event) => {
+              event.stopPropagation()
+              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) done()
+              if (event.key === 'Escape') done()
+            }}
+            className="block w-full resize-none rounded-b border border-cl-border bg-cl-raised px-2 py-1 text-sm text-cl-text placeholder:text-cl-muted"
+          />
+        </div>
       )}
       <div className="flex items-center justify-between gap-2 text-[11px] text-cl-muted">
         <span>{region.kind === 'keepout' ? 'Kept clear' : 'Ctrl+Enter when done'}</span>

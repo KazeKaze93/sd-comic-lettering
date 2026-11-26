@@ -35,6 +35,7 @@ export function BubblesField({
   onBlurCommit,
   onCtrlEnter,
   onFocus,
+  flatTop,
   placeholder,
   rows = 3,
   textareaRef,
@@ -45,7 +46,9 @@ export function BubblesField({
   onChange: (value: string) => void
   onBlurCommit: () => void
   onCtrlEnter: () => void
-  onFocus: () => void
+  onFocus?: () => void
+  /** A bar stands on top of the field: only its lower corners are round. */
+  flatTop?: boolean
   placeholder: string
   rows?: number
   textareaRef: (element: HTMLTextAreaElement | null) => void
@@ -119,7 +122,7 @@ export function BubblesField({
           onKeyDown={(event) => {
             if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) onCtrlEnter()
           }}
-          className="block w-full resize-y rounded border border-cl-border bg-cl-raised py-1.5 pl-9 pr-2 text-sm placeholder:text-cl-muted"
+          className={`block w-full resize-y ${flatTop ? 'rounded-b' : 'rounded'} border border-cl-border bg-cl-raised py-1.5 pl-9 pr-2 text-sm placeholder:text-cl-muted`}
         />
         {/* The gutter stands in the field's left padding and moves with its text. */}
         <div className="pointer-events-none absolute inset-y-0 left-0 w-9 overflow-hidden" aria-hidden="true">

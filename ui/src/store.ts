@@ -36,6 +36,8 @@ interface State {
   nudge: { id: string; dx: number; dy: number; factor?: number; turn?: number } | null
   /** The area under the pointer, with the arrow: its tint shows while the pointer is on it. */
   hover: string | null
+  /** The marks used last, newest first: the four a text field's toolbar offers at once. */
+  recentMarks: string[]
   busy: boolean
   status: string
   warning: boolean
@@ -65,6 +67,8 @@ interface State {
   pickRegion: (id: string | null) => void
   setNudge: (nudge: State['nudge']) => void
   setHover: (id: string | null) => void
+  /** Note that a mark was put into a text: it goes to the front of the recent ones. */
+  useMark: (symbol: string) => void
   setStamp: (change: Partial<State['stamp']>) => void
   /** Put a bubble from the template into a box on the image and open the field for its text. */
   addBubble: (box: BubbleTemplate['box']) => void
@@ -243,6 +247,7 @@ export const useStore = create<State>((set, get) => {
     region: null,
     nudge: null,
     hover: null,
+    recentMarks: ['♥', '★', '✦', '♪'],
     stamp: { shape: 'oval', tail: 'down-left', fill: 'light' },
     busy: false,
     status: '',
@@ -417,6 +422,7 @@ export const useStore = create<State>((set, get) => {
     pickRegion: (id) => set((state) => ({ region: id, open: id === null ? state.open : { ...state.open, areas: true } })),
     setNudge: (nudge) => set({ nudge }),
     setHover: (id) => set({ hover: id }),
+    useMark: (symbol) => set((state) => ({ recentMarks: [symbol, ...state.recentMarks.filter((mark) => mark !== symbol)].slice(0, 4) })),
     setStamp: (change) => set((state) => ({ stamp: { ...state.stamp, ...change } })),
 
     addBubble: (box) => {

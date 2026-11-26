@@ -12,6 +12,8 @@ export interface Options {
   tails: string[]
   placements: string[]
   symbols: string[]
+  /** The same marks with their group and a mask of the shape the renderer draws. An older server does not send it. */
+  marks?: { symbol: string; name: string; group: string; mask: string }[]
   defaults: Settings
   settings: Settings
   auto: { enabled: boolean; text: string; caption: string; sfx: string }
