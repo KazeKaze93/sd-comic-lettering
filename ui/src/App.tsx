@@ -17,7 +17,8 @@ function TopBar() {
   const slot = useStore((state) => state.slots[state.source])
   const showOriginal = useStore((state) => state.showOriginal)
   const showFrames = useStore((state) => state.showFrames)
-  const { setSource, setShowOriginal, setShowFrames, save } = useStore.getState()
+  const pinned = slot ? Object.keys(slot.pins).length : 0
+  const { setSource, setShowOriginal, setShowFrames, save, clearPins } = useStore.getState()
   return (
     <header className="flex shrink-0 items-center gap-2 border-b border-cl-border bg-cl-surface px-3 py-2">
       <span className="text-sm font-medium">Comic Lettering</span>
@@ -27,6 +28,11 @@ function TopBar() {
         </div>
       )}
       <span className="flex-1" />
+      {pinned > 0 && (
+        <Button onClick={() => clearPins()} title="Hand everything placed by hand back to the automatic placement">
+          Place all automatically
+        </Button>
+      )}
       <Toggle checked={showFrames} onChange={setShowFrames} label="Frames" />
       <Button active={showOriginal} disabled={!slot} onClick={() => setShowOriginal(!showOriginal)}>
         Original

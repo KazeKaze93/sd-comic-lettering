@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api, type NewSession } from './api'
-import type { HostImage, LookOf, Options, Settings, Slot, Source } from './types'
+import type { HostImage, LookOf, Options, Pin, Settings, Slot, Source } from './types'
 
 const FONT_KEYS = ['font', 'caption_font', 'sfx_font']
 
@@ -20,6 +20,8 @@ interface State {
   lookOf: LookOf
   showOriginal: boolean
   showFrames: boolean
+  /** The id of the item picked on the image, if any. */
+  selected: string | null
   busy: boolean
   status: string
   warning: boolean
@@ -37,6 +39,11 @@ interface State {
   setShowOriginal: (value: boolean) => void
   setShowFrames: (value: boolean) => void
   moveEffects: () => void
+  select: (id: string | null) => void
+  /** Set an item's place, size or tilt by hand and draw again. */
+  setPin: (id: string, pin: Pin) => void
+  /** Hand one item, or all of them, back to the automatic placement. */
+  clearPins: (id?: string) => void
   resetLook: (keepFonts: boolean) => void
   render: () => Promise<void>
   save: () => Promise<void>
@@ -58,6 +65,7 @@ function slotOf(created: NewSession): Slot {
     applied: '',
     status: '',
     warning: false,
+    pins: {},
   }
 }
 
@@ -88,6 +96,7 @@ export const useStore = create<State>((set, get) => {
     lookOf: 'bubble',
     showOriginal: false,
     showFrames: true,
+    selected: null,
     busy: false,
     status: '',
     warning: false,
@@ -187,6 +196,28 @@ export const useStore = create<State>((set, get) => {
       get().setSetting('sfx_seed', current + 1)
     },
 
+    select: (id) => set({ selected: id }),
+
+    setPin: (id, pin) => {
+      set((state) => {
+        const slot = state.slots[state.source]
+        if (!slot) return {}
+        return { slots: { ...state.slots, [state.source]: { ...slot, pins: { ...slot.pins, [id]: pin } } } }
+      })
+      void get().render()
+    },
+
+    clearPins: (id) => {
+      set((state) => {
+        const slot = state.slots[state.source]
+        if (!slot) return {}
+        const pins = { ...slot.pins }
+        if (id) delete pins[id]
+        return { slots: { ...state.slots, [state.source]: { ...slot, pins: id ? pins : {} } } }
+      })
+      void get().render()
+    },
+
     resetLook: (keepFonts) => {
       const { options, settings } = get()
       if (!options) return
@@ -206,12 +237,12 @@ export const useStore = create<State>((set, get) => {
         return
       }
       const { text, caption, sfx, numbers, settings, source } = state
-      const signature = JSON.stringify([text, caption, sfx, numbers, settings])
+      const signature = JSON.stringify([text, caption, sfx, numbers, settings, slot.pins])
       if (signature === slot.applied) return
       rendering = true
       set({ busy: true, error: null })
       try {
-        const result = await api.render(slot.session, text, caption, sfx, numbers, settings)
+        const result = await api.render(slot.session, text, caption, sfx, numbers, settings, slot.pins)
         set((now) => {
           const held = now.slots[source]
           if (!held || held.session !== slot.session) return { busy: false }

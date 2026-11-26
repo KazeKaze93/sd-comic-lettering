@@ -51,9 +51,16 @@ def letter(image, text="", caption="", spill=True, placement="auto", style=None,
 
 
 def arrange(image, text="", caption="", spill=True, placement="auto", style=None, erase=True,
-            white_threshold=120, rtl=False, numbers=False, sfx=""):
-    # type: (Image.Image, str, str, bool, str, Style, bool, int, bool, bool, str) -> Dict
+            white_threshold=120, rtl=False, numbers=False, sfx="", pins=None):
+    # type: (Image.Image, str, str, bool, str, Style, bool, int, bool, bool, str, Dict) -> Dict
     """Decide what goes where, without drawing anything. Arguments as for letter().
+
+    pins: what was set by hand, by item id ("caption" for the caption or its balloon,
+    "sfx:0" for the first sound effect): {"cx", "cy"} the middle of the item in pixels,
+    {"size"} its font size in pixels, {"rotation"} its tilt in degrees, counter-clockwise.
+    Whatever a pin leaves out is still decided here. Things placed after a pinned item
+    keep off it where it now stands. The caption's "reach" and the balloon's "tall", as
+    the scene reported them, keep the line breaks the item had when it was pinned.
 
     Returns the scene: a dict of plain values (it survives a trip through JSON) that
     draw() turns into the lettered image. scene["items"] lists what is drawn, in order:
@@ -119,10 +126,11 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     if automatic:
         info["characters"] = known
     energy = _energy(rgb) if (effects or (free and style.caption_bubble != "none")) else None
+    pins = pins if isinstance(pins, dict) else {}
     caption_box = None
     if free:
         item = _place_free(rgb, "\n".join(free), placement, style, static,
-                           palette(style, "caption", accent), energy, precious)
+                           palette(style, "caption", accent), energy, precious, _pin(pins.get("caption")))
         items.append(item)
         caption_box = item["box"]
         info["free_text"] = True
@@ -130,7 +138,7 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     if effects:
         taken = np.zeros(rgb.shape[:2], dtype=bool)  # the caption and the effects placed so far
         _reserve(taken, caption_box)
-        items.extend(_place_sfx(rgb, effects, static, taken, style, energy, precious))
+        items.extend(_place_sfx(rgb, effects, static, taken, style, energy, precious, pins))
         info["sfx"] = len(effects)
     return scene
 
@@ -174,6 +182,24 @@ def draw(image, scene):
             out = _draw_sfx(out, item, static, taken, style, palette(style, "sfx", accent), width, height)
             _reserve(taken, item["room"])
     return out.convert("RGB")
+
+
+def _pin(pin):
+    """A pin with only the numbers it may carry; {} for anything else."""
+    clean = {}
+    if isinstance(pin, dict):
+        for key in ("cx", "cy", "size", "rotation", "reach"):
+            value = pin.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value:
+                clean[key] = float(value)
+        if "size" in clean:
+            clean["size"] = max(8, min(2000, int(round(clean["size"]))))
+        if "cx" not in clean or "cy" not in clean:
+            clean.pop("cx", None)
+            clean.pop("cy", None)
+        if isinstance(pin.get("tall"), bool):
+            clean["tall"] = pin["tall"]
+    return clean
 
 
 def _plain(lines):
@@ -544,6 +570,7 @@ def _caption_look(style, pal):
 
 def _draw_caption(image, item, style, pal, precious):
     look = _caption_look(style, pal)
+    look.rotation = item.get("rotation", look.rotation)
     size = item["size"]
     paint = _paint(style, "caption", pal, size, look.font)
     layer = render_block(_lines(item), size, look, paint)
@@ -552,20 +579,26 @@ def _draw_caption(image, item, style, pal, precious):
     return paste_centered(image, layer, item["cx"], item["cy"])
 
 
-def _place_free(rgb, text, placement, style, static, pal, energy, precious=None):
+def _place_free(rgb, text, placement, style, static, pal, energy, precious=None, pin=None):
     """The scene item for the free text: a caption, or a balloon drawn for it."""
+    pin = pin or {}
     if style.caption_bubble != "none":
-        return _place_balloon(rgb, text, placement, style, static, energy, precious)
+        return _place_balloon(rgb, text, placement, style, static, energy, precious, pin)
     height, width = rgb.shape[:2]
     look = _caption_look(style, pal)
+    look.rotation = pin.get("rotation", look.rotation)
     paragraphs = parse_text(text, style.uppercase)
-    full = max(8, int(style.free_size / 100.0 * height))
+    full = pin["size"] if "size" in pin else max(8, int(style.free_size / 100.0 * height))
+    # A size set by hand is kept: no smaller one is tried to find a clear place.
+    factors = (1.0,) if "size" in pin else (1.0, 0.85, 0.72)
+    reach = 0.46 if "-" in placement else 0.88
 
     def fitted(size, reach):
         while True:
             lines = layout(paragraphs, get_fonts(look, size), width * reach)
             block_w, block_h = block_size(lines, size, look)
-            if (block_h <= height * 0.36 and block_w <= width * (reach + 0.04)) or size <= 8:
+            # A size set by hand is taken as it is, even if the block comes out large.
+            if (block_h <= height * 0.36 and block_w <= width * (reach + 0.04)) or size <= 8 or "size" in pin:
                 if look.rotation or look.arc or look.line_tilt:
                     # Tilted or bent, the text takes more room than its straight block:
                     # measure what is really drawn, so the place is chosen for that.
@@ -575,16 +608,20 @@ def _place_free(rgb, text, placement, style, static, pal, energy, precious=None)
                 return lines, size, block_w, block_h
             size = max(8, min(size - 1, int(size * 0.92)))
 
-    if placement == "auto":
+    if "cx" in pin:
+        # A place set by hand: the line breaks stay as wide as they were when it was pinned.
+        reach = 0.46 if pin.get("reach", 0.88) < 0.5 else 0.88
+        lines, size, block_w, block_h = fitted(full, reach)
+    elif placement == "auto":
         # A band at the top or the bottom, or a narrower block in a corner; if none of
         # them is clear of bubbles and characters, the same a little smaller. The calmest
         # clear one wins. If nothing is clear, the full-size one that covers the least,
         # a head counting most: a caption across the legs is fine, across the face it is not.
         options = []  # (smaller, narrow, cost, clear, name, fit), in order of preference
-        for factor in (1.0, 0.85, 0.72):
-            for names, reach in ((("top", "bottom"), 0.88),
-                                 (("top-left", "top-right", "bottom-left", "bottom-right"), 0.46)):
-                fit = fitted(max(8, int(full * factor)), reach)
+        for factor in factors:
+            for names, wide in ((("top", "bottom"), 0.88),
+                                (("top-left", "top-right", "bottom-left", "bottom-right"), 0.46)):
+                fit = fitted(max(8, int(full * factor)), wide)
                 for name in names:
                     cx, cy = _anchor(name, fit[2], fit[3], width, height)
                     x0, y0 = int(cx - fit[2] / 2.0), int(cy - fit[3] / 2.0)
@@ -603,7 +640,7 @@ def _place_free(rgb, text, placement, style, static, pal, energy, precious=None)
                                     max(0, x0 - pad):max(0, x0 + int(fit[2]) + pad)].any():
                             clear = False
                             total += 400.0  # when nothing is clear: rather on a body than on a bubble
-                    options.append((factor < 1.0, reach < 0.5, total, clear, name, fit))
+                    options.append((factor < 1.0, wide < 0.5, total, clear, name, fit))
             if any(option[3] for option in options):
                 break
         clear = [option for option in options if option[3]]
@@ -613,13 +650,18 @@ def _place_free(rgb, text, placement, style, static, pal, energy, precious=None)
         else:
             best = min((option for option in options if not option[0]), key=lambda option: option[2])
         placement, (lines, size, block_w, block_h) = best[4], best[5]
+        reach = 0.46 if best[1] else 0.88
     else:
-        lines, size, block_w, block_h = fitted(full, 0.46 if "-" in placement else 0.88)
-    cx, cy = _anchor(placement, block_w, block_h, width, height)
+        lines, size, block_w, block_h = fitted(full, reach)
+    if "cx" in pin:
+        cx, cy = min(max(pin["cx"], 0.0), float(width)), min(max(pin["cy"], 0.0), float(height))
+    else:
+        cx, cy = _anchor(placement, block_w, block_h, width, height)
     box = [int(cx - block_w / 2.0 - size), int(cy - block_h / 2.0 - size * 0.5),
            int(cx + block_w / 2.0 + size), int(cy + block_h / 2.0 + size * 0.5)]
-    return {"kind": "caption", "text": text, "placement": placement, "lines": _plain(lines), "size": int(size),
-            "cx": float(cx), "cy": float(cy), "box": box}
+    return {"kind": "caption", "id": "caption", "text": text, "placement": placement, "lines": _plain(lines),
+            "size": int(size), "cx": float(cx), "cy": float(cy), "box": box, "rotation": float(look.rotation),
+            "reach": reach}
 
 
 def _covered(static, precious, x, y, box_w, box_h):
@@ -674,37 +716,45 @@ def _balloon_shape(lines, size, look, style):
     return fill_mask, outline, bx, by
 
 
-def _place_balloon(rgb, text, placement, style, static, energy, precious=None):
+def _place_balloon(rgb, text, placement, style, static, energy, precious=None, pin=None):
     """The scene item for a caption inside a bubble drawn for it."""
+    pin = pin or {}
     height, width = rgb.shape[:2]
     look = voice(style, "caption")
     paragraphs = parse_text(text, style.uppercase)
-    full = max(8, int(style.free_size / 100.0 * height))
-    if placement == "auto":
+    full = pin["size"] if "size" in pin else max(8, int(style.free_size / 100.0 * height))
+    sized = "size" in pin  # a size set by hand is kept: no smaller one is tried
+    tall = False
+    if "cx" in pin:
+        # A place set by hand: the bubble keeps the shape it had when it was pinned.
+        tall = bool(pin.get("tall"))
+        lines, size, fill_mask, outline, bx, by = _drawn_bubble(paragraphs, look, style, full, width, height, tall)
+        x, y = int(pin["cx"] - fill_mask.width / 2.0), int(pin["cy"] - fill_mask.height / 2.0)
+    elif placement == "auto":
         # Try the bubble wide, then tall and narrow, each time a little smaller (down to
         # half), until it fits clear of bubbles and characters. If nothing fits, take
         # the one that covers the least, heads counting most.
         table = _integral(static)
         heavy = _integral(precious) if precious is not None else None
         chosen = None
-        for factor in (1.0, 0.85, 0.72, 0.6, 0.5):
-            for tall in (False, True):
-                drawn = _drawn_bubble(paragraphs, look, style, max(8, int(full * factor)), width, height, tall)
+        for factor in ((1.0,) if sized else (1.0, 0.85, 0.72, 0.6, 0.5)):
+            for shape in (False, True):
+                drawn = _drawn_bubble(paragraphs, look, style, max(8, int(full * factor)), width, height, shape)
                 x, y, clear, score = _calm_spot(energy, table, None, drawn[2].width, drawn[2].height,
                                                 width, height, random.Random(style.seed), heavy)
                 if clear or chosen is None or score < chosen[0]:
-                    chosen = (score, drawn, x, y)
+                    chosen = (score, drawn, x, y, shape)
                 if clear:
                     break
             if clear:
                 break
-        _, (lines, size, fill_mask, outline, bx, by), x, y = chosen
+        _, (lines, size, fill_mask, outline, bx, by), x, y, tall = chosen
     else:
         # A fixed place: smaller sizes are tried there until the bubble is clear of bubbles
         # and characters. If none is, it lands on them anyway: then a moderately smaller
         # one is drawn, not the smallest, which would only be harder to read.
         tried = []
-        for factor in (1.0, 0.85, 0.72, 0.6):
+        for factor in ((1.0,) if sized else (1.0, 0.85, 0.72, 0.6)):
             drawn = _drawn_bubble(paragraphs, look, style, max(8, int(full * factor)), width, height)
             cx, cy = _anchor(placement, drawn[2].width, drawn[2].height, width, height)
             x, y = int(cx - drawn[2].width / 2.0), int(cy - drawn[2].height / 2.0)
@@ -714,10 +764,11 @@ def _place_balloon(rgb, text, placement, style, static, energy, precious=None):
                 clear = not precious[max(0, y):max(0, y + drawn[2].height), max(0, x):max(0, x + drawn[2].width)].any()
             if clear:
                 break
-        (lines, size, fill_mask, outline, bx, by), x, y = tried[-1] if clear else tried[2]
+        (lines, size, fill_mask, outline, bx, by), x, y = tried[-1] if clear else tried[min(2, len(tried) - 1)]
     x = max(0, min(x, width - fill_mask.width))
     y = max(0, min(y, height - fill_mask.height))
-    return {"kind": "balloon", "text": text, "lines": _plain(lines), "size": int(size), "x": int(x), "y": int(y),
+    return {"kind": "balloon", "id": "caption", "text": text, "lines": _plain(lines), "size": int(size),
+            "x": int(x), "y": int(y), "tall": bool(tall),
             "box": [int(x), int(y), int(x + fill_mask.width), int(y + fill_mask.height)]}
 
 
@@ -853,10 +904,16 @@ def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=No
     return int(xs[pick % len(xs)]), int(ys[pick // len(xs)]), bool(blocked[pick] < 0.002), score
 
 
-def _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height):
-    """One sound effect as a cropped RGBA layer, with the paint used for it."""
+def _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height, rotation=None):
+    """One sound effect as a cropped RGBA layer, with the paint used for it.
+
+    rotation: the tilt to use instead of the random one (which is still drawn from rng,
+    so everything after it comes out the same).
+    """
     look = copy.copy(base_look)
     look.rotation = rng.uniform(-style.sfx_tilt, style.sfx_tilt)
+    if rotation is not None:
+        look.rotation = rotation
     look.arc = rng.uniform(-0.2, 0.2)
     look.opacity = style.sfx_opacity
     look.seed = seed
@@ -881,7 +938,7 @@ def _repeat(effect):
     return (repeat.group(1) if repeat and count > 1 else effect), count
 
 
-def _place_sfx(rgb, effects, static, taken, style, energy, precious=None):
+def _place_sfx(rgb, effects, static, taken, style, energy, precious=None, pins=None):
     """The scene items for the sound effects. `taken` gains the room of each one."""
     height, width = rgb.shape[:2]
     static_table = _integral(static)
@@ -893,6 +950,12 @@ def _place_sfx(rgb, effects, static, taken, style, energy, precious=None):
         rng = random.Random(style.sfx_seed * 1000003 + index)
         size = max(10, int(style.sfx_size / 100.0 * height * rng.uniform(0.85, 1.15)))
         word, count = _repeat(effect)
+        pin = _pin((pins or {}).get("sfx:%d" % index))
+        # The tilt a single word gets is the next number of the stream; a column of words
+        # tilts each word by itself, so its own tilt is none unless set by hand.
+        rotation = pin.get("rotation", rng.uniform(-style.sfx_tilt, style.sfx_tilt) if count == 1 else 0.0)
+        if "size" in pin:
+            size = max(10, pin["size"])
         # The place is chosen for a nominal box that depends on the text and size only.
         # Its width is estimated per character, not measured, so the font does not matter.
         units = sum(0.95 if ch in SYMBOLS else 0.3 if ch.isspace() else 0.5 for ch in word.replace("*", ""))
@@ -900,12 +963,18 @@ def _place_sfx(rgb, effects, static, taken, style, energy, precious=None):
         # the size then depends on the image and the text only.
         taken_table = _integral(taken)
         tried = []
-        for factor in (1.0, 0.8, 0.65):
+        for factor in ((1.0,) if "size" in pin or "cx" in pin else (1.0, 0.8, 0.65)):
             trial = max(10, int(size * factor))
             trial_w = int(min(width * 0.9, (units + 0.8) * trial))
             trial_h = int(min(height * 0.9, trial * (1.4 if count == 1 else 0.75 * count + 0.8)))
-            x, y, clear, _ = _calm_spot(energy, static_table, taken_table, trial_w, trial_h, width, height,
-                                        None, heavy, turn=style.sfx_seed + index)
+            if "cx" in pin:
+                # Where it was put by hand, as far as its box stays inside the image.
+                x = int(min(max(pin["cx"] - trial_w / 2.0, 0), max(0, width - trial_w)))
+                y = int(min(max(pin["cy"] - trial_h / 2.0, 0), max(0, height - trial_h)))
+                clear = True
+            else:
+                x, y, clear, _ = _calm_spot(energy, static_table, taken_table, trial_w, trial_h, width, height,
+                                            None, heavy, turn=style.sfx_seed + index)
             tried.append((trial, trial_w, trial_h, x, y))
             if clear:
                 break
@@ -920,8 +989,9 @@ def _place_sfx(rgb, effects, static, taken, style, energy, precious=None):
         room = [max(0, int(center_x - room_w / 2.0)), max(0, int(center_y - room_h / 2.0)),
                 max(0, int(center_x + room_w / 2.0)), max(0, int(center_y + room_h / 2.0))]
         _reserve(taken, room)
-        items.append({"kind": "sfx", "text": effect, "index": index, "size": int(size), "x": int(x), "y": int(y),
-                      "nominal": [int(nominal_w), int(nominal_h)], "room": room})
+        items.append({"kind": "sfx", "id": "sfx:%d" % index, "text": effect, "index": index, "size": int(size),
+                      "x": int(x), "y": int(y), "nominal": [int(nominal_w), int(nominal_h)], "room": room,
+                      "rotation": float(rotation)})
     return items
 
 
@@ -952,12 +1022,15 @@ def _draw_sfx(image, item, static, taken, style, pal, width, height):
         for piece, shift in rows:
             layer.alpha_composite(piece, (max(0, (layer.width - piece.width) // 2 + shift), int(top)))
             top += piece.height * 0.72
+        if item.get("rotation"):
+            layer = layer.rotate(item["rotation"], resample=Image.BICUBIC, expand=True)  # the whole column
         bounds = layer.getbbox()
         if bounds is None:
             return image
         layer = layer.crop(bounds)
     else:
-        layer, paint, size = _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height)
+        layer, paint, size = _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height,
+                                        item.get("rotation"))
         if layer is None:
             return image
     if layer.width > width * 0.9 or layer.height > height * 0.9:

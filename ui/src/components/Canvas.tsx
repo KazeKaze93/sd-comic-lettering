@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { SceneItem, Slot } from '../types'
+import type { Pin, SceneItem, Slot } from '../types'
 
 /** The largest size with the image's proportions that fits the element. */
 function useFit(width: number, height: number) {
@@ -22,13 +22,35 @@ function useFit(width: number, height: number) {
   return { ref, size }
 }
 
-function boxOf(item: SceneItem, slot: Slot): [number, number, number, number] | null {
-  if (item.kind === 'bubble') return item.bubble === undefined ? null : (slot.bubbles[item.bubble] ?? null)
+/** Where an item stands, in image pixels: its middle, its size and its tilt. */
+interface Place {
+  cx: number
+  cy: number
+  width: number
+  height: number
+  rotation: number
+}
+
+function placeOf(item: SceneItem): Place | null {
   if (item.kind === 'sfx') {
     if (item.x === undefined || item.y === undefined || !item.nominal) return null
-    return [item.x, item.y, item.x + item.nominal[0], item.y + item.nominal[1]]
+    return {
+      cx: item.x + item.nominal[0] / 2,
+      cy: item.y + item.nominal[1] / 2,
+      width: item.nominal[0],
+      height: item.nominal[1],
+      rotation: item.rotation ?? 0,
+    }
   }
-  return item.box ?? null
+  if (!item.box) return null
+  const [x0, y0, x1, y1] = item.box
+  return {
+    cx: item.kind === 'caption' && item.cx !== undefined ? item.cx : (x0 + x1) / 2,
+    cy: item.kind === 'caption' && item.cy !== undefined ? item.cy : (y0 + y1) / 2,
+    width: x1 - x0,
+    height: y1 - y0,
+    rotation: item.kind === 'caption' ? (item.rotation ?? 0) : 0,
+  }
 }
 
 const NAMES: Record<SceneItem['kind'], string> = {
@@ -38,19 +60,14 @@ const NAMES: Record<SceneItem['kind'], string> = {
   sfx: 'effect',
 }
 
-/** Frames over the image: every bubble found, and everything that was drawn. */
-function Frames({ slot, scale }: { slot: Slot; scale: number }) {
+/** Frames of the bubbles found in the art: numbered in reading order, dashed if left empty. */
+function FoundBubbles({ slot, scale }: { slot: Slot; scale: number }) {
   const filled = new Set(slot.items.filter((item) => item.kind === 'bubble').map((item) => item.bubble))
-  // Labels keep one size on screen whatever the size of the image.
-  const label = 12 / Math.max(scale, 0.01)
+  const label = 12 / Math.max(scale, 0.01) // one size on screen whatever the size of the image
   return (
-    <svg
-      viewBox={`0 0 ${slot.width} ${slot.height}`}
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      aria-hidden="true"
-    >
+    <svg viewBox={`0 0 ${slot.width} ${slot.height}`} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
       {slot.bubbles.map((box, index) => (
-        <g key={`found-${index}`}>
+        <g key={index}>
           <rect
             x={box[0]}
             y={box[1]}
@@ -67,31 +84,185 @@ function Frames({ slot, scale }: { slot: Slot; scale: number }) {
           </text>
         </g>
       ))}
-      {slot.items
-        .filter((item) => item.kind !== 'bubble')
-        .map((item, index) => {
-          const box = boxOf(item, slot)
-          if (!box) return null
-          return (
-            <g key={`item-${index}`}>
-              <rect
-                x={box[0]}
-                y={box[1]}
-                width={box[2] - box[0]}
-                height={box[3] - box[1]}
-                fill="none"
-                stroke="rgb(var(--cl-accent))"
-                strokeDasharray="2 3"
-                vectorEffect="non-scaling-stroke"
-                strokeWidth={1.5}
-              />
-              <text x={box[0] + 3} y={box[1] - 4} fontSize={label} fill="rgb(var(--cl-accent))" stroke="black" strokeWidth={label / 6} paintOrder="stroke">
-                {NAMES[item.kind]}
-              </text>
-            </g>
-          )
-        })}
     </svg>
+  )
+}
+
+type Gesture = 'move' | 'size' | 'turn'
+
+/** What a drag has changed so far, before the server has drawn it. */
+interface Pending {
+  id: string
+  dx: number
+  dy: number
+  factor: number
+  turn: number
+}
+
+const STILL: Omit<Pending, 'id'> = { dx: 0, dy: 0, factor: 1, turn: 0 }
+
+/** A frame that can be dragged, with a corner to resize it and a knob to turn it. */
+function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: number }) {
+  const id = item.id as string
+  const selected = useStore((state) => state.selected === id)
+  const { select, setPin, clearPins } = useStore.getState()
+  const [pending, setPending] = useState<Pending | null>(null)
+  const gesture = useRef<{ kind: Gesture; x: number; y: number; moved: boolean } | null>(null)
+  const frame = useRef<HTMLDivElement>(null)
+  const place = placeOf(item)
+
+  // The server's answer replaces what the drag showed meanwhile.
+  useEffect(() => setPending(null), [slot.version])
+
+  if (!place) return null
+  const pinned = id in slot.pins
+  const canTurn = item.kind !== 'balloon'
+  const shown = pending ?? { id, ...STILL }
+  const cx = (place.cx + shown.dx) * scale
+  const cy = (place.cy + shown.dy) * scale
+  const width = place.width * shown.factor * scale
+  const height = place.height * shown.factor * scale
+  // The image turns counter-clockwise for a positive tilt; CSS turns clockwise.
+  const angle = -(place.rotation + shown.turn)
+
+  /** Everything about the item as it stands, so that changing one thing moves nothing else. */
+  const pinNow = (): Pin => ({
+    cx: place.cx,
+    cy: place.cy,
+    size: item.size,
+    rotation: canTurn ? place.rotation : undefined,
+    reach: item.reach,
+    tall: item.tall,
+    ...slot.pins[id],
+  })
+
+  const middle = () => {
+    const rect = frame.current?.parentElement?.getBoundingClientRect()
+    return { x: (rect?.left ?? 0) + cx, y: (rect?.top ?? 0) + cy }
+  }
+
+  const begin = (kind: Gesture) => (event: ReactPointerEvent) => {
+    if (event.button !== 0) return
+    event.stopPropagation()
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    gesture.current = { kind, x: event.clientX, y: event.clientY, moved: false }
+    select(id)
+  }
+
+  const drag = (event: ReactPointerEvent) => {
+    const active = gesture.current
+    if (!active) return
+    const dx = event.clientX - active.x
+    const dy = event.clientY - active.y
+    if (!active.moved && Math.hypot(dx, dy) < 3) return
+    active.moved = true
+    if (active.kind === 'move') {
+      setPending({ id, ...STILL, dx: dx / scale, dy: dy / scale })
+      return
+    }
+    const center = middle()
+    if (active.kind === 'size') {
+      const before = Math.hypot(active.x - center.x, active.y - center.y)
+      const now = Math.hypot(event.clientX - center.x, event.clientY - center.y)
+      setPending({ id, ...STILL, factor: Math.min(6, Math.max(0.2, now / Math.max(before, 1))) })
+      return
+    }
+    const before = Math.atan2(active.y - center.y, active.x - center.x)
+    const now = Math.atan2(event.clientY - center.y, event.clientX - center.x)
+    setPending({ id, ...STILL, turn: -((now - before) * 180) / Math.PI })
+  }
+
+  const end = (event: ReactPointerEvent) => {
+    const active = gesture.current
+    gesture.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    if (!active || !active.moved || !pending) return
+    const pin = pinNow()
+    if (active.kind === 'move') {
+      pin.cx = Math.min(slot.width, Math.max(0, place.cx + pending.dx))
+      pin.cy = Math.min(slot.height, Math.max(0, place.cy + pending.dy))
+    } else if (active.kind === 'size') {
+      pin.size = Math.round(Math.min(slot.height * 0.6, Math.max(8, item.size * pending.factor)))
+    } else {
+      let turned = place.rotation + pending.turn
+      while (turned > 180) turned -= 360
+      while (turned < -180) turned += 360
+      pin.rotation = Math.round(turned * 2) / 2
+    }
+    setPin(id, pin)
+  }
+
+  const border = selected ? 'border-cl-accent' : pinned ? 'border-cl-accent/80' : 'border-cl-accent/50 hover:border-cl-accent'
+  return (
+    <div
+      ref={frame}
+      className="absolute"
+      style={{ left: cx, top: cy, width, height, transform: `translate(-50%, -50%) rotate(${angle}deg)` }}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={`${NAMES[item.kind]}: ${item.text}. Drag to move.`}
+        onPointerDown={begin('move')}
+        onPointerMove={drag}
+        onPointerUp={end}
+        onPointerCancel={end}
+        onKeyDown={(event) => {
+          // Arrow keys nudge the item; Delete hands it back to the automatic placement.
+          const step = event.shiftKey ? 10 : 1
+          const by: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }
+          if (event.key in by) {
+            event.preventDefault()
+            const pin = pinNow()
+            setPin(id, { ...pin, cx: (pin.cx ?? place.cx) + by[event.key][0], cy: (pin.cy ?? place.cy) + by[event.key][1] })
+          } else if ((event.key === 'Delete' || event.key === 'Backspace') && pinned) {
+            event.preventDefault()
+            clearPins(id)
+          }
+        }}
+        onFocus={() => select(id)}
+        className={`h-full w-full cursor-move touch-none rounded-sm border ${selected || pinned ? 'border-solid' : 'border-dashed'} ${border} ${
+          selected ? 'bg-cl-accent/10' : ''
+        } outline-none`}
+      />
+      <span className="pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-black/60 px-1 text-[11px] leading-4 text-cl-accent-text">
+        {NAMES[item.kind]}
+        {pinned ? ' · placed by hand' : ''}
+      </span>
+      {selected && (
+        <>
+          <div
+            title="Drag to resize"
+            onPointerDown={begin('size')}
+            onPointerMove={drag}
+            onPointerUp={end}
+            onPointerCancel={end}
+            className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize touch-none rounded-sm border border-black/60 bg-cl-accent"
+          />
+          {canTurn && (
+            <div
+              title="Drag to turn"
+              onPointerDown={begin('turn')}
+              onPointerMove={drag}
+              onPointerUp={end}
+              onPointerCancel={end}
+              className="absolute -top-6 left-1/2 h-3 w-3 -translate-x-1/2 cursor-grab touch-none rounded-full border border-black/60 bg-cl-accent"
+            />
+          )}
+          {pinned && (
+            <button
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => clearPins(id)}
+              className="absolute -bottom-7 left-0 whitespace-nowrap rounded border border-cl-border bg-cl-raised px-1.5 text-[11px] leading-5 text-cl-text hover:border-cl-muted"
+            >
+              Place automatically
+            </button>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 
@@ -100,8 +271,9 @@ function Picture({ slot }: { slot: Slot }) {
   const showFrames = useStore((state) => state.showFrames)
   const { ref, size } = useFit(slot.width, slot.height)
   const which = showOriginal || slot.empty ? 'original' : 'result'
+  const scale = size.width / slot.width
   return (
-    <div ref={ref} className="flex min-h-0 flex-1 items-center justify-center">
+    <div ref={ref} className="flex min-h-0 flex-1 items-center justify-center" onPointerDown={() => useStore.getState().select(null)}>
       {size.width > 0 && (
         <div className="relative" style={{ width: size.width, height: size.height }}>
           <img
@@ -110,7 +282,16 @@ function Picture({ slot }: { slot: Slot }) {
             className="h-full w-full select-none"
             draggable={false}
           />
-          {showFrames && !showOriginal && <Frames slot={slot} scale={size.width / slot.width} />}
+          {showFrames && !showOriginal && (
+            <>
+              <FoundBubbles slot={slot} scale={scale} />
+              {slot.items
+                .filter((item) => item.id)
+                .map((item) => (
+                  <Handle key={item.id} item={item} slot={slot} scale={scale} />
+                ))}
+            </>
+          )}
         </div>
       )}
     </div>

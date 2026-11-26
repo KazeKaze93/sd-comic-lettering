@@ -1,4 +1,4 @@
-import type { Options, RenderResult, Settings } from './types'
+import type { Options, Pin, RenderResult, Settings } from './types'
 
 const BASE = '/comic_lettering'
 
@@ -43,8 +43,15 @@ export const api = {
   lastGeneration: (tab: string, index: number, count: number) =>
     post<NewSession>('/session/last', { tab, index, count }),
 
-  render: (session: string, text: string, caption: string, sfx: string, numbers: boolean, settings: Settings) =>
-    post<RenderResult>('/render', { session, text, caption, sfx, numbers, settings }),
+  render: (
+    session: string,
+    text: string,
+    caption: string,
+    sfx: string,
+    numbers: boolean,
+    settings: Settings,
+    pins: Record<string, Pin>,
+  ) => post<RenderResult>('/render', { session, text, caption, sfx, numbers, settings, pins }),
 
   saveSettings: (settings: Settings, auto: Options['auto']) => post<{ ok: boolean }>('/settings', { settings, auto }),
 

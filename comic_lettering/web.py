@@ -148,10 +148,10 @@ def make_style(s):
     return style
 
 
-def make_scene(image, text, caption, numbers, s, sfx=""):
+def make_scene(image, text, caption, numbers, s, sfx="", pins=None):
     return arrange(image, text, caption=caption, spill=s["spill"], placement=s["placement"],
                    style=make_style(s), erase=s["erase"], white_threshold=s["white_threshold"],
-                   numbers=numbers, sfx=sfx)
+                   numbers=numbers, sfx=sfx, pins=pins)
 
 
 def describe(info):
@@ -188,10 +188,13 @@ def get_session(session_id):
         return session
 
 
-def render_session(session, text, caption, sfx, numbers, settings):
-    """Letter the session's image; returns what the page needs to show the result."""
+def render_session(session, text, caption, sfx, numbers, settings, pins=None):
+    """Letter the session's image; returns what the page needs to show the result.
+
+    pins: what was placed by hand on the page, see arrange().
+    """
     s = merge_values(settings)
-    scene = make_scene(session["image"], text or "", caption or "", bool(numbers), s, sfx or "")
+    scene = make_scene(session["image"], text or "", caption or "", bool(numbers), s, sfx or "", pins)
     result = draw(session["image"], scene)
     with _lock:
         session["result"] = None if scene.get("empty") else result
@@ -357,7 +360,8 @@ def register(app, save_folder=None):
             return fail("The image is gone from memory. Load it again.", 404)
         try:
             payload = await run_in_threadpool(render_session, session, body.get("text"), body.get("caption"),
-                                              body.get("sfx"), body.get("numbers"), body.get("settings") or {})
+                                              body.get("sfx"), body.get("numbers"), body.get("settings") or {},
+                                              body.get("pins"))
         except Exception as error:  # report it on the page instead of a bare 500
             return fail("%s: %s" % (type(error).__name__, error), 500)
         return JSONResponse(payload)

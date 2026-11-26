@@ -40,7 +40,7 @@ The `Comic Lettering` button sits under the txt2img result gallery. It opens the
 | Control | What it does |
 |---|---|
 | `From generation` / `Own image` | Which image is lettered: the one in the txt2img gallery, or a file of yours. |
-| `Frames` | Outlines over the image: every bubble found, numbered in reading order (dashed if left empty), and everything that was drawn. |
+| `Frames` | Outlines over the image: every bubble found, numbered in reading order (dashed if left empty), and everything that was drawn. The caption, its drawn bubble and the sound effects can be moved by their frames, see below. |
 | `Original` | Shows the image without the lettering. The texts stay in their fields. |
 | `Save` | Writes the lettered PNG into the host's folder for saved images; the status line names the file. |
 | `To gallery` | Puts the lettered image into the txt2img gallery and closes the editor. |
@@ -51,6 +51,8 @@ The `Comic Lettering` button sits under the txt2img result gallery. It opens the
 | `Look` | Chooses whose lists are shown: bubbles, caption or sound effects. |
 | `Fine tuning` | Sizes, outlines, the custom mood and the bubble detector, grouped by kind of text. `Reset the look` puts everything back; `Keep the fonts` leaves the three fonts alone. |
 | `Letter every new image while it is generated` | Letters images during generation, with the three texts and the look as they are in the editor. |
+
+**Placing by hand.** Drag the frame of the caption, of its drawn bubble or of a sound effect to move it. Click a frame to pick it: the corner square resizes it, the round knob above turns it (not the drawn bubble). The arrow keys nudge the picked item, by ten pixels with Shift. What was placed by hand stays where it is when the texts or the look change, and the things placed automatically keep off it. `Place automatically` under a picked frame (or Delete) hands that item back to the script; `Place all automatically` at the top does it for all of them. Texts inside the bubbles found in the art are always fitted by the script.
 
 The status line under the image says how many bubbles were found and filled. The look is remembered in `user_settings.json`. The texts are remembered only while `Letter every new image` is on, since the host then needs them.
 
@@ -80,7 +82,7 @@ Yo", caption="Last day of summer.", sfx="SPLASH")
 result = draw(image, scene)
 ```
 
-`arrange()` decides what goes where and draws nothing. The scene it returns is a dict of plain values, so it survives a trip through JSON: `scene["items"]` lists the texts in the bubbles found in the art (`bubble`), the caption (`caption`) or the bubble drawn for it (`balloon`), and the sound effects (`sfx`), each with its text, its font size and its place in pixels. `draw()` draws a scene onto the image it was made for.
+`arrange()` decides what goes where and draws nothing; its `pins` argument fixes the place, size or tilt of single items (`{"caption": {"cx": 300, "cy": 500}, "sfx:0": {"size": 120, "rotation": -20}}`). The scene it returns is a dict of plain values, so it survives a trip through JSON: `scene["items"]` lists the texts in the bubbles found in the art (`bubble`), the caption (`caption`) or the bubble drawn for it (`balloon`), and the sound effects (`sfx`), each with its text, its font size and its place in pixels. `draw()` draws a scene onto the image it was made for.
 
 ### Text
 

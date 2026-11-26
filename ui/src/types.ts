@@ -27,6 +27,24 @@ export interface SceneItem {
   x?: number
   y?: number
   nominal?: [number, number]
+  /** Present on what can be moved by hand: "caption", "sfx:0", ... */
+  id?: string
+  cx?: number
+  cy?: number
+  /** Tilt in degrees, counter-clockwise. */
+  rotation?: number
+  reach?: number
+  tall?: boolean
+}
+
+/** What was set by hand for one item; the server decides whatever is left out. */
+export interface Pin {
+  cx?: number
+  cy?: number
+  size?: number
+  rotation?: number
+  reach?: number
+  tall?: boolean
 }
 
 export interface RenderResult {
@@ -55,6 +73,8 @@ export interface Slot {
   /** What the server said about that render. */
   status: string
   warning: boolean
+  /** Places, sizes and tilts set by hand, by item id. */
+  pins: Record<string, Pin>
 }
 
 /** What the host page tells the editor about the image in its gallery. */
