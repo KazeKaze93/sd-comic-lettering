@@ -295,6 +295,9 @@ class ComicLetteringScript(scripts.Script):
                     pick("sfx_mood", "Mood", MOODS)
                     pick("sfx_extras", "Marks around", EXTRAS)
             gr.HTML(value=fonts_css(), visible=True, elem_id="comic_lettering_fonts_css_" + self.tab)
+            # Clicked by the page script when this tab comes into view: txt2img and img2img
+            # share one settings file, and each panel must show what the other one saved.
+            sync_button = gr.Button("sync", visible=False, elem_id=pid + "_sync")
             enabled = gr.Checkbox(label="Letter every new image while it is generated", value=False)
             with gr.Accordion("Fine tuning", open=False):
                 heading("All text")
@@ -355,7 +358,7 @@ class ComicLetteringScript(scripts.Script):
         self.rendered = not deferred
         self.parts = {
             "apply": apply_button, "clean": clean_button, "shuffle": shuffle_button,
-            "reset": reset_button, "keep_fonts": keep_fonts, "symbols": symbol_buttons,
+            "reset": reset_button, "keep_fonts": keep_fonts, "symbols": symbol_buttons, "sync": sync_button,
             "clear": [(clear_text, text), (clear_caption, caption), (clear_sfx, sfx)],
             "status": status, "text": text, "caption": caption, "sfx": sfx, "numbers": numbers,
             "remembered": remembered, "sfx_seed": c["sfx_seed"], "look": look,
@@ -421,13 +424,16 @@ class ComicLetteringScript(scripts.Script):
         font_lists = [parts["by_key"][key] for key in FONT_KEYS]
         parts["reset"].click(fn=self.reset_options, inputs=[parts["keep_fonts"]] + font_lists,
                              outputs=parts["remembered"])
+        def saved():
+            return [load_settings()[key] for key in ORDER]
+
+        parts["sync"].click(fn=saved, inputs=[], outputs=parts["remembered"], show_progress=False)
         # ui-config and the build-time values are stale after a browser reload: refresh
         # the remembered values from the settings file on every page load.
         try:
             root = gr.context.Context.root_block
             if root is not None:
-                root.load(fn=lambda: [load_settings()[key] for key in ORDER], inputs=None,
-                          outputs=parts["remembered"], show_progress=False)
+                root.load(fn=saved, inputs=None, outputs=parts["remembered"], show_progress=False)
         except Exception:  # optional; never break the UI over it
             pass
 

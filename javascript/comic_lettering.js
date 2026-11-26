@@ -86,4 +86,34 @@
         field.focus();
         field.selectionStart = field.selectionEnd = before.length + text.length;
     };
+
+    // --- 3. txt2img and img2img share one settings file. --------------------------------
+    // When the other tab comes into view, its panel reloads the saved settings, so it
+    // neither shows stale lists nor writes them back over the newer ones.
+    var panelIds = ['comic_lettering_txt2img', 'comic_lettering_img2img'];
+    var shown = null;
+
+    setInterval(function () {
+        if (typeof gradioApp !== 'function') {
+            return;
+        }
+        var app = gradioApp();
+        var now = null;
+        for (var i = 0; i < panelIds.length; i++) {
+            var panel = app.querySelector('#' + panelIds[i]);
+            if (panel && panel.offsetParent !== null) {
+                now = panelIds[i];
+            }
+        }
+        if (!now) {
+            return;
+        }
+        if (shown && now !== shown) {
+            var button = app.querySelector('#' + now + '_sync');
+            if (button) {
+                button.click();
+            }
+        }
+        shown = now;
+    }, 700);
 })();
