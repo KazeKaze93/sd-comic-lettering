@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { api, type NewSession } from './api'
 import { tellHost, type NodeState } from './bridge'
 import { boxOf, bubbleShapes, turned } from './geometry'
-import type { BubbleTemplate, HostImage, LookOf, Options, Pin, Region, Settings, Shape, Slot, Source, Tool } from './types'
+import type { BubbleTemplate, HostImage, Options, Pin, Region, SectionId, Settings, Shape, Slot, Source, Tool } from './types'
 
 const FONT_KEYS = ['font', 'caption_font', 'sfx_font']
 
@@ -20,7 +20,8 @@ interface State {
   sfx: string
   settings: Settings
   auto: boolean
-  lookOf: LookOf
+  /** Which parts of the side panel are unfolded. */
+  open: Record<SectionId, boolean>
   showOriginal: boolean
   showFrames: boolean
   /** The id of the item picked on the image, if any. */
@@ -50,7 +51,7 @@ interface State {
   setField: (field: 'text' | 'caption' | 'sfx', value: string) => void
   setSetting: (key: string, value: string | number | boolean, render?: boolean) => void
   setAuto: (value: boolean) => void
-  setLookOf: (value: LookOf) => void
+  setOpen: (id: SectionId, value: boolean) => void
   setShowOriginal: (value: boolean) => void
   setShowFrames: (value: boolean) => void
   moveEffects: () => void
@@ -233,7 +234,7 @@ export const useStore = create<State>((set, get) => {
     sfx: '',
     settings: {},
     auto: false,
-    lookOf: 'bubble',
+    open: { bubbles: true, caption: false, sfx: false, areas: false, all: false, auto: false },
     showOriginal: false,
     showFrames: true,
     selected: null,
@@ -379,7 +380,7 @@ export const useStore = create<State>((set, get) => {
       persist()
     },
 
-    setLookOf: (value) => set({ lookOf: value }),
+    setOpen: (id, value) => set((state) => ({ open: { ...state.open, [id]: value } })),
     setShowOriginal: (value) => set({ showOriginal: value }),
     setShowFrames: (value) => set({ showFrames: value }),
 
@@ -410,9 +411,10 @@ export const useStore = create<State>((set, get) => {
       void get().render()
     },
 
-    setTool: (tool) => set({ tool, selected: null }),
+    // A drawing tool taken up, or an area picked: the part of the panel that goes with them unfolds.
+    setTool: (tool) => set((state) => ({ tool, selected: null, open: tool === 'off' ? state.open : { ...state.open, areas: true } })),
     setBrush: (brush) => set({ brush }),
-    pickRegion: (id) => set({ region: id }),
+    pickRegion: (id) => set((state) => ({ region: id, open: id === null ? state.open : { ...state.open, areas: true } })),
     setNudge: (nudge) => set({ nudge }),
     setHover: (id) => set({ hover: id }),
     setStamp: (change) => set((state) => ({ stamp: { ...state.stamp, ...change } })),

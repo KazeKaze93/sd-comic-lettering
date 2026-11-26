@@ -32,9 +32,13 @@ function AutoChip() {
       aria-label={`Automatic mode: ${auto ? 'on' : 'off'}. Show the setting`}
       title={`Automatic mode: ${auto ? 'on' : 'off'}. Show the setting`}
       onClick={() => {
-        const toggle = document.getElementById('cl-auto-toggle')
-        toggle?.scrollIntoView({ block: 'center' })
-        toggle?.focus()
+        // The setting is in a part of the panel that may be folded: unfold it, then go there.
+        useStore.getState().setOpen('auto', true)
+        requestAnimationFrame(() => {
+          const toggle = document.getElementById('cl-auto-toggle')
+          toggle?.scrollIntoView({ block: 'center' })
+          toggle?.focus()
+        })
       }}
       className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 text-[11px] ${
         auto ? 'border-cl-accent bg-cl-accent/20 text-cl-accent-text' : 'border-cl-border text-cl-muted hover:text-cl-text'

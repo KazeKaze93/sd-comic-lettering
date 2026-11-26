@@ -13,6 +13,53 @@ export function Icon({ children, size = 16 }: { children: ReactNode; size?: numb
   )
 }
 
+/** A part of the panel that folds away under its title. Folded, it says in a line what it holds. */
+export function Section({
+  id,
+  title,
+  summary,
+  open,
+  onToggle,
+  actions,
+  children,
+}: {
+  id: string
+  title: string
+  /** Shown beside the title while the section is folded. */
+  summary?: string
+  open: boolean
+  onToggle: (open: boolean) => void
+  /** Buttons at the right of the title, while the section is open. */
+  actions?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section className="flex flex-col gap-2 border-t border-cl-border pt-3 first:border-t-0 first:pt-0">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={`${id}-body`}
+          onClick={() => onToggle(!open)}
+          className="flex h-7 min-w-0 flex-1 items-center gap-1.5 text-left text-cl-text"
+        >
+          <span className="shrink-0 text-cl-muted">
+            <Icon size={12}>{open ? <path d="M3.5 6l4.500 4.500L12.500 6" /> : <path d="M6 3.500l4.500 4.500L6 12.500" />}</Icon>
+          </span>
+          <span className="shrink-0 text-xs font-semibold">{title}</span>
+          {!open && summary && <span className="min-w-0 flex-1 truncate text-right text-[11px] text-cl-muted">{summary}</span>}
+        </button>
+        {open && actions && <span className="flex shrink-0 items-center gap-1">{actions}</span>}
+      </div>
+      {open && (
+        <div id={`${id}-body`} className="flex flex-col gap-2">
+          {children}
+        </div>
+      )}
+    </section>
+  )
+}
+
 type ButtonVariant = 'plain' | 'quiet' | 'primary'
 
 export function Button({

@@ -102,7 +102,8 @@ export interface RenderResult {
 }
 
 export type Source = 'generation' | 'own'
-export type LookOf = 'bubble' | 'caption' | 'sfx'
+/** The parts of the side panel that fold. */
+export type SectionId = 'bubbles' | 'caption' | 'sfx' | 'areas' | 'all' | 'auto'
 
 /** An image being lettered and what the server last made of it. */
 export interface Slot {
