@@ -588,6 +588,7 @@ def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy, precious
         # The place is chosen for a nominal box that depends on the text and size only.
         # Its width is estimated per character, not measured, so the font does not matter.
         units = sum(0.95 if ch in SYMBOLS else 0.3 if ch.isspace() else 0.5 for ch in word.replace("*", ""))
+        nominal_size = size  # the look may shrink `size` below; the room must not follow
         nominal_w = int(min(width * 0.9, (units + 0.8) * size))
         nominal_h = int(min(height * 0.9, size * (1.4 if count == 1 else 0.75 * count + 0.8)))
         x, y, _, _ = _calm_spot(energy, static_table, _integral(taken), nominal_w, nominal_h, width, height,
@@ -625,14 +626,16 @@ def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy, precious
         # An effect made of symbols alone gets no marks around it: hearts around hearts.
         plain = [ch for ch in word if not ch.isspace() and ch != "*"]
         kind = None if plain and all(ch in SYMBOLS for ch in plain) else EXTRAS.get(style.sfx_extras)
-        # Marks keep off the characters, the bubbles and the effects placed so far.
+        # Marks keep off the characters, the bubbles and the room of earlier effects.
         layer = decorate(layer, kind, size, paint, seed, static | taken, (cx, cy))
         image = paste_centered(image, layer, cx, cy)
-        # Reserve what was really drawn, marks included, with a gap: the box the next
-        # effect is placed by is only an estimate, and two effects must not touch.
-        drawn = layer.getbbox() or (0, 0, layer.width, layer.height)
-        left, top = cx - layer.width / 2.0, cy - layer.height / 2.0
-        gap = int(0.45 * size)
-        taken[max(0, int(top + drawn[1]) - gap):max(0, int(top + drawn[3]) + gap),
-              max(0, int(left + drawn[0]) - gap):max(0, int(left + drawn[2]) + gap)] = True
+        # Reserve room for this effect so the next one keeps off it. The room is worked
+        # out from the text and the size alone, generous enough for a wide font and for
+        # marks around: were it measured from what was drawn, a change of font or marks
+        # would resize it and push the later effects somewhere else.
+        room_w = (units * 0.62 + 1.0) * nominal_size + 2.8 * nominal_size
+        room_h = nominal_size * (1.5 if count == 1 else 0.75 * count + 0.9) + 2.8 * nominal_size
+        center_x, center_y = x + nominal_w / 2.0, y + nominal_h / 2.0
+        taken[max(0, int(center_y - room_h / 2.0)):max(0, int(center_y + room_h / 2.0)),
+              max(0, int(center_x - room_w / 2.0)):max(0, int(center_x + room_w / 2.0))] = True
     return image
