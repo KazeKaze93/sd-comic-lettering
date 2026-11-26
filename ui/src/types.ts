@@ -52,6 +52,9 @@ export interface Slot {
   bubbles: [number, number, number, number][]
   /** The inputs of the last finished render, to skip a render that would change nothing. */
   applied: string
+  /** What the server said about that render. */
+  status: string
+  warning: boolean
 }
 
 /** What the host page tells the editor about the image in its gallery. */

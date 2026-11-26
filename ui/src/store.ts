@@ -56,6 +56,8 @@ function slotOf(created: NewSession): Slot {
     items: [],
     bubbles: [],
     applied: '',
+    status: '',
+    warning: false,
   }
 }
 
@@ -112,7 +114,8 @@ export const useStore = create<State>((set, get) => {
     },
 
     setSource: (source) => {
-      set({ source, error: null, status: '' })
+      const slot = get().slots[source]
+      set({ source, error: null, status: slot?.status ?? '', warning: slot?.warning ?? false })
       void get().render()
     },
 
@@ -225,6 +228,8 @@ export const useStore = create<State>((set, get) => {
                 items: result.items,
                 bubbles: result.bubbles,
                 applied: signature,
+                status: result.status,
+                warning: result.warning,
               },
             },
           }

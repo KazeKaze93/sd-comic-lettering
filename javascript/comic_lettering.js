@@ -13,7 +13,12 @@
     // The image the gallery shows now, and where it stands among the gallery's images.
     function galleryImage() {
         var gallery = app().querySelector('#' + tab + '_gallery');
-        var thumbs = gallery ? gallery.querySelectorAll('.thumbnail-item img, .thumbnails img') : [];
+        // The gallery lists its images twice while one is open: as a grid and as a strip
+        // under the open image. Count one of the two.
+        var thumbs = gallery ? gallery.querySelectorAll('.grid-wrap .thumbnail-item img') : [];
+        if (gallery && !thumbs.length) {
+            thumbs = gallery.querySelectorAll('.thumbnails .thumbnail-item img');
+        }
         var index = 0;
         if (typeof selected_gallery_index === 'function') {
             index = selected_gallery_index();
