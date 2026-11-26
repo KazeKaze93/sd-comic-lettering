@@ -69,7 +69,7 @@ Three fields:
 
 - **Bubbles**: one line per bubble, in reading order (top to bottom, left to right). An empty line skips a bubble. Line breaks inside a bubble are placed automatically, at the largest font size that fits, and so that the lines form a diamond: short at the top and bottom, long in the middle.
 - **Caption**: text drawn straight onto the art, outside the bubbles, or inside a bubble drawn for it. With `auto` placement it takes the calmer of top and bottom, keeps off the bubbles and avoids covering a head.
-- **Sound effects**: one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the characters, the caption and the other effects. `FAP x5` stacks the word five times in a ragged column. **Move** sends each of them to another place; in a crowded image that can be on a character, never on a head first. Changing the look of an effect does not move it.
+- **Sound effects**: one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the characters, the caption and the other effects. `FAP x5` stacks the word five times in a ragged column. **Move** sends each of them to another place. An effect that would land on a character is drawn smaller first, down to 65%; in a crowded image it can still end up on a character, never on a head first. Changing the look of an effect does not move it.
 
 In any field:
 
@@ -77,7 +77,7 @@ In any field:
 - `♥` (or `<3`), `★`, `✦`, `♪`, `💢`, `💧` are drawn as shapes: heart, star, sparkle, note, anger mark, drop.
 - A word may break after a hyphen (`H-m-m`) when that lets the text be bigger.
 
-A line goes into a bubble only if it fits at a readable size (`bubble_min_size`). A bubble too small for it is passed over, and lines left without a bubble are added to the caption. Untick `Text too long for a bubble goes to the caption` under `Fine tuning` to always write into the bubbles, however small, and drop the lines left over.
+A line goes into a bubble only if it fits at a readable size (`bubble_min_size`) in at most eight lines. A bubble too small for it is passed over, and lines left without a bubble are added to the caption. Untick `Text too long for a bubble goes to the caption` under `Fine tuning` to always write into the bubbles, however small, and drop the lines left over.
 
 ### Look
 
@@ -133,7 +133,7 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 - A bubble is detected as a flat white or gray fill (any brightness above `white_threshold`) enclosed by a dark outline, or a flat near-black fill enclosed by a bright outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, translucent or gradient bubbles and rectangular caption boxes are not found. Dark bubbles are calibrated on a single example: expect misses.
 - Anything else that looks the same gets lettered too, such as a blank sheet of paper on a wall. Use `Bubble numbers` to see what was found and an empty line to skip it.
 - A narrow bubble cannot hold a long word at a readable size. Such text goes to the caption.
-- When a character fills most of the frame there may be no free place: a drawn bubble is then shrunk, down to 60%, and put where it covers the least, keeping off heads and bubbles first. The head is taken to be the top quarter of a character, so this fails for a character lying down or upside down.
+- When a character fills most of the frame there may be no free place: a drawn bubble is then tried tall and narrow and shrunk, down to half, and put where it covers the least, keeping off heads and bubbles first. The head is taken to be the top quarter of a character, so this fails for a character lying down or upside down.
 - Marks around a text are left out where they would land on a character or be cut by the image edge. An effect made of symbols alone gets no marks. A caption with a fixed placement (`top`, a corner) avoids nothing.
 - The place of a sound effect is chosen for an estimated box, so a very wide font can make two effects touch.
 - No emoji fallback font.

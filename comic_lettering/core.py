@@ -20,6 +20,7 @@ PLACEMENTS = ["auto", "top", "bottom", "center", "top-left", "top-right", "botto
               "bottom-right"]
 SHAPE_WEIGHT = 0.6   # how much font size a better line shape is worth
 SHAPE_REACH = 0.8    # look for a better shape down to this share of the largest size
+MAX_LINES = 8        # more lines than this in one bubble is a wall of text: it goes to the caption
 SAMPLE_TEXT = u"Hello! Привет! 123"
 REPEAT = re.compile(u"^(.*?\\S)\\s*[xX×]\\s*(\\d{1,2})$")  # "FAP x5"
 
@@ -321,6 +322,8 @@ def _fit_bubble(image_height, bubble, text, style, strict):
         for lines in candidates:
             if lines is None or not _fits(lines, size, style, inner, cy, cx):
                 continue
+            if strict and len(lines) > MAX_LINES:
+                continue
             if largest is None:
                 largest = size
             quality = size / float(largest) - SHAPE_WEIGHT * shape_score(lines)
@@ -399,18 +402,23 @@ def _letter_free(image, rgb, text, placement, style, static, pal, energy, precio
     return paste_centered(image, layer, cx, cy), size, box
 
 
-def _drawn_bubble(paragraphs, look, style, size, width, height):
-    """Lay the text out and draw a bubble around it, trimmed to what is drawn."""
+def _drawn_bubble(paragraphs, look, style, size, width, height, tall=False):
+    """Lay the text out and draw a bubble around it, trimmed to what is drawn.
+
+    tall: a narrow bubble with more lines, for the strips of background beside a character.
+    """
+    shares, counts, aspect = ((0.12, 0.16, 0.2), range(3, 9), 0.75) if tall else ((0.24, 0.32, 0.42), range(2, 7), 1.7)
     while True:
         fonts = get_fonts(look, size)
-        candidates = [layout(paragraphs, fonts, width * share) for share in (0.24, 0.32, 0.42)]
-        candidates += [shaped for shaped in (layout_shaped(paragraphs, fonts, n) for n in range(2, 7))
+        candidates = [layout(paragraphs, fonts, width * share) for share in shares]
+        candidates += [shaped for shaped in (layout_shaped(paragraphs, fonts, n) for n in counts)
                        if shaped is not None and block_size(shaped, size, look)[0] <= width * 0.46]
 
         def unfit(candidate):
-            # A good bubble is a diamond of text about 1.7 times wider than tall.
+            # A good bubble is a diamond of text, about 1.7 times wider than tall (or
+            # taller than wide when a tall one is asked for).
             w, h = block_size(candidate, size, look)
-            return shape_score(candidate) + 0.3 * abs(math.log(max(w, 1.0) / (1.7 * max(h, 1.0))))
+            return shape_score(candidate) + 0.3 * abs(math.log(max(w, 1.0) / (aspect * max(h, 1.0))))
 
         lines = min(candidates, key=unfit)
         block_w, block_h = block_size(lines, size, look)
@@ -434,17 +442,21 @@ def _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy
     paragraphs = parse_text(text, style.uppercase)
     full = max(8, int(style.free_size / 100.0 * height))
     if placement == "auto":
-        # Shrink the bubble, down to 60%, until it fits clear of bubbles and characters.
-        # If no size fits, take the one that covers the least, heads counting most.
+        # Try the bubble wide, then tall and narrow, each time a little smaller (down to
+        # half), until it fits clear of bubbles and characters. If nothing fits, take
+        # the one that covers the least, heads counting most.
         table = _integral(static)
         heavy = _integral(precious) if precious is not None else None
         chosen = None
-        for factor in (1.0, 0.85, 0.72, 0.6):
-            drawn = _drawn_bubble(paragraphs, look, style, max(8, int(full * factor)), width, height)
-            x, y, clear, score = _calm_spot(energy, table, None, drawn[2].width, drawn[2].height, width,
-                                            height, random.Random(style.seed), heavy)
-            if clear or chosen is None or score < chosen[0]:
-                chosen = (score, drawn, x, y)
+        for factor in (1.0, 0.85, 0.72, 0.6, 0.5):
+            for tall in (False, True):
+                drawn = _drawn_bubble(paragraphs, look, style, max(8, int(full * factor)), width, height, tall)
+                x, y, clear, score = _calm_spot(energy, table, None, drawn[2].width, drawn[2].height,
+                                                width, height, random.Random(style.seed), heavy)
+                if clear or chosen is None or score < chosen[0]:
+                    chosen = (score, drawn, x, y)
+                if clear:
+                    break
             if clear:
                 break
         _, (lines, size, fill_mask, outline, bx, by), x, y = chosen
@@ -497,7 +509,7 @@ def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=No
     A place that collides with `taken` (the caption, earlier effects) is never used
     while any other is left: the search widens to every clear place, then to places
     on a character, where `heavy` (heads, bubbles) counts several times more than the
-    rest. clear tells whether a clear place existed; score how much is covered if not.
+    rest. clear tells whether the place returned is clear; score how much is covered if not.
 
     turn: an arrangement number, used instead of rng. The usable places are reduced to a
     few anchors that lie far apart, and turn picks one of them in rotation, so the next
@@ -580,7 +592,7 @@ def _calm_spot(energy, static, taken, box_w, box_h, width, height, rng, heavy=No
                 break
         else:
             pick = int(np.argmin(busy + penalty * 1e-6))
-    return int(xs[pick % len(xs)]), int(ys[pick // len(xs)]), found, score
+    return int(xs[pick % len(xs)]), int(ys[pick // len(xs)]), bool(blocked[pick] < 0.002), score
 
 
 def _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height):
@@ -621,11 +633,21 @@ def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy, precious
         # The place is chosen for a nominal box that depends on the text and size only.
         # Its width is estimated per character, not measured, so the font does not matter.
         units = sum(0.95 if ch in SYMBOLS else 0.3 if ch.isspace() else 0.5 for ch in word.replace("*", ""))
+        # An effect that would land on a character is tried smaller first. Like the place,
+        # the size then depends on the image and the text only.
+        taken_table = _integral(taken)
+        tried = []
+        for factor in (1.0, 0.8, 0.65):
+            trial = max(10, int(size * factor))
+            trial_w = int(min(width * 0.9, (units + 0.8) * trial))
+            trial_h = int(min(height * 0.9, trial * (1.4 if count == 1 else 0.75 * count + 0.8)))
+            x, y, clear, _ = _calm_spot(energy, static_table, taken_table, trial_w, trial_h, width, height,
+                                        None, heavy, turn=style.sfx_seed + index)
+            tried.append((trial, trial_w, trial_h, x, y))
+            if clear:
+                break
+        size, nominal_w, nominal_h, x, y = tried[-1] if clear else tried[min(1, len(tried) - 1)]
         nominal_size = size  # the look may shrink `size` below; the room must not follow
-        nominal_w = int(min(width * 0.9, (units + 0.8) * size))
-        nominal_h = int(min(height * 0.9, size * (1.4 if count == 1 else 0.75 * count + 0.8)))
-        x, y, _, _ = _calm_spot(energy, static_table, _integral(taken), nominal_w, nominal_h, width, height,
-                                None, heavy, turn=style.sfx_seed + index)
         if count > 1:
             # "FAP x5": the word several times in a ragged column.
             rows = []
