@@ -60,7 +60,7 @@ const TONES: Record<Tone, { border: string; soft: string; faint: string; wash: s
     faint: 'border-cl-accent/50 hover:border-cl-accent',
     wash: 'bg-cl-accent/10',
     fill: 'bg-cl-accent',
-    text: 'text-cl-accent',
+    text: 'text-cl-accent-text',
   },
   hand: {
     border: 'border-cl-hand',
