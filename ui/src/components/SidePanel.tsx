@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api'
+import { lineFates } from '../lines'
 import { useStore } from '../store'
 import { BUBBLE_SHAPES, BUBBLE_TAILS } from '../geometry'
+import { BubblesField } from './BubblesField'
 import type { BubbleShape, BubbleTail, Region, RegionKind, SectionId, Tool } from '../types'
 import { Button, ColorField, Icon, IconButton, Section, Segmented, Select, Slider, Toggle } from './controls'
 
@@ -298,6 +300,7 @@ export function SidePanel() {
   const comfy = useStore((state) => state.comfy)
   const open = useStore((state) => state.open)
   const areaCount = useStore((state) => state.slots[state.source]?.regions.length ?? 0)
+  const slot = useStore((state) => state.slots[state.source])
   const { setField, setSetting, setAuto, setOpen, moveEffects, resetLook, render } = useStore.getState()
 
   const areas = useRef<Record<FieldName, HTMLTextAreaElement | null>>({ text: null, caption: null, sfx: null })
@@ -411,7 +414,21 @@ export function SidePanel() {
         onToggle={fold('bubbles')}
         actions={clear('text')}
       >
-        {field('text', 'One line per bubble, in the order of the numbers on the image; an empty line skips one.', 3)}
+        <BubblesField
+          value={fields.text}
+          fates={lineFates(fields.text, slot?.applied || null, slot?.items ?? [], slot?.bubbles.length ?? 0, Boolean(settings.spill))}
+          onChange={(value) => setField('text', value)}
+          onBlurCommit={() => void render()}
+          onCtrlEnter={() => void render()}
+          onFocus={() => {
+            lastField.current = 'text'
+          }}
+          placeholder="One line per bubble. An empty line leaves a bubble empty."
+          rows={3}
+          textareaRef={(element) => {
+            areas.current.text = element
+          }}
+        />
         <div className="grid grid-cols-2 gap-2">
           {list('font', 'Font', options.fonts, true)}
           {list('bubble_colors', 'Colors', options.palettes)}
