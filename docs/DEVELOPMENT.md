@@ -70,7 +70,7 @@ async def files(path: str):
 uvicorn.run(app, port=8198)
 ```
 
-Open `http://127.0.0.1:8198/comic_lettering/ui` and use `Own image`. Opened directly, with no host page around it, the editor hides `From generation`, `To gallery` and `Close`.
+Open `http://127.0.0.1:8198/comic_lettering/ui` and use `Own image`. Opened directly, with no host page around it, the editor hides what only a host gives meaning to: the list of sources, the `Auto` chip, `To gallery`, `Close` and the `Automatic mode` section.
 
 Point `web.SETTINGS_FILE` somewhere else first if you do not want the stand-in to write your real `user_settings.json`.
 
@@ -94,10 +94,11 @@ Point `web.SETTINGS_FILE` somewhere else first if you do not want the stand-in t
 
 1. `render.py`: write the shape as polygons on a unit square (see `_more_shapes()`; a dict entry cuts out of what is already drawn) and add it to `SHAPES`.
 2. `render.py`: map a character to it in `SYMBOLS`.
-3. `web.py`: add the character to `SYMBOLS`, the list the page shows as buttons.
-4. Optional: add an entry to `EXTRAS` to offer it as marks around a text.
+3. `web.py`: add the character to `SYMBOLS`, the list of characters drawn as shapes.
+4. `web.py`: add it to `MARK_GROUPS` under the group it belongs to. A mark that is missing there is named on the server's error stream and does not appear on the bars of the text fields.
+5. Optional: add an entry to `EXTRAS` to offer it as marks around a text.
 
-No change in the editor is needed: it draws the buttons from `/options`.
+No change in the editor is needed: it draws the buttons from the `marks` of `/options`, with the mask the renderer makes of the shape.
 
 ### Add a color preset
 
@@ -113,7 +114,7 @@ Add a dict of the six mood options to `render.MOODS`.
 2. Use it where the text is drawn.
 3. `web.py`: add it to `DEFAULTS` (and to `CHOICES` if it is a list).
 4. `comfy_nodes.py`: add it to `INPUT_TYPES`. Anything not in `DIRECT` is copied onto the `Style` by name.
-5. `ui/src/components/SidePanel.tsx`: add a slider spec or a list.
+5. `ui/src/components/SidePanel.tsx`: add it to the section of the text it belongs to. A list goes into the section's look; a slider into the spec array behind its `More…` (`BUBBLES`, `CAPTION`, `EFFECTS`), or into `ALL_TEXT` when every kind of text shares it. A slider spec has a short `label` and a `hint` that says it in full.
 6. `__main__.py`: nothing, `--opt name=value` already reaches it.
 
 Adding an input changes the node's widget order: add new inputs **at the end** of `required`, or saved workflows shift their values.

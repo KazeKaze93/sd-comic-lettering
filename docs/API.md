@@ -135,14 +135,13 @@ or, when `known` equals the current origin and the session is still alive:
   "text": "Hi!\nYo.",
   "caption": "Later...",
   "sfx": "THUD",
-  "numbers": false,
   "settings": { "...": "..." },
   "pins": {"sfx:0": {"cx": 300, "cy": 700, "size": 60}},
   "regions": [{"id": "a", "kind": "text", "fill": "light", "text": "Hi", "shapes": []}]
 }
 ```
 
-`pins` and `regions` are as in [CORE.md](CORE.md#pins-placing-by-hand). Answer:
+`pins` and `regions` are as in [CORE.md](CORE.md#pins-placing-by-hand). The server also takes `numbers` (a boolean: draw each bubble's number instead of the texts); the editor does not send it. Answer:
 
 ```json
 {

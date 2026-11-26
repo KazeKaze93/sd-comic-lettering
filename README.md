@@ -23,7 +23,7 @@ One repository, two hosts: an **extension for AUTOMATIC1111 / Forge / reForge** 
 - [Lettering every image automatically](#lettering-every-image-automatically)
 - [Keeping text off the characters](#keeping-text-off-the-characters)
 - [ComfyUI](#comfyui)
-- [Fine tuning](#fine-tuning)
+- [More settings](#more-settings)
 - [Fonts](#fonts)
 - [Limits](#limits)
 - [Troubleshooting](#troubleshooting)
@@ -89,32 +89,75 @@ For AUTOMATIC1111 / Forge / reForge. ComfyUI has [its own section](#comfyui).
    <img src="docs/images/tool-icon.png" alt="The speech-bubble icon in the row of tools under Generate, just before Style Grid's icon" width="340">
 
    The last icon in the picture is Style Grid's, shown when that extension is installed.
-3. Type into `Bubbles`, one line per bubble. The numbers on the image show which bubble takes which line.
+3. Type into `Bubbles`, one line per bubble. The number beside each line is the bubble it went into, the same number as on the image.
 4. Press `To gallery` to put the result into the gallery, or `Save` to write it to disk.
 
 Everything applies by itself: a list or a checkbox when it changes, a slider when you let go of it, a text field when you leave it or press Ctrl+Enter. There is no "Apply" button.
 
-![The editor](docs/images/editor.png)
+![The editor: the top bar, the tools at the left, the image with its numbered bubbles, the panel with its sections](docs/images/editor.png)
 
 ## The editor
 
-**Top bar**
+The editor has four parts: the top bar, the tools at the left of the image, the image with the status line under it, and the panel at the right.
+
+### Top bar
 
 | Control | What it does |
 |---|---|
-| `From generation` / `Own image` | Which image is lettered: the one in the gallery of the tab you came from, or a file of yours. Drop a file onto the editor or click to choose one; nothing has to be generated for that. |
-| `Place all automatically` | Appears once something was moved by hand. Hands every item back to automatic placement. |
-| `Frames and areas` | Shows or hides the outlines over the image: every bubble found, numbered in reading order, and a frame around each caption, effect and area. Untick it to see the image exactly as it will be saved. |
-| `Original` | Shows the image without the lettering. The texts stay in their fields. |
+| `From generation` / `Own image` | A list: which image is lettered. `From generation` is the one in the gallery of the tab you came from; `Own image` is a file of yours. Drop a file onto the editor or click to choose one; nothing has to be generated for that. |
+| Undo, Redo | Take back the last change, or do it again: Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y. They cover the texts, the look, what was placed by hand and the areas, fifty steps back. Inside a text field the same keys undo typing, as in any text field. |
+| `Frames and areas` (F) | An icon button. Shows or hides everything drawn over the image: the numbers and frames of the bubbles found, and the frames of captions, effects and areas. Switch it off to see the image exactly as it will be saved. |
+| `Hold to compare` (C) | While the button or the key is held, the image is shown without the lettering. |
+| `Auto on` / `Auto off` | Says whether [every new image is lettered by itself](#lettering-every-image-automatically); a click leads to the setting. Not in ComfyUI. |
 | `Save` | Writes the lettered image to disk. See [Saving](#saving). |
-| `To gallery` | Puts the lettered image into the host's gallery and closes the editor. |
-| `Close` | Closes the editor. Esc does the same. |
+| `To gallery` | Puts the lettered image into the host's gallery and closes the editor. Not in ComfyUI. |
+| `Close` | Closes the editor. Esc does the same; in a text field the first Esc only leaves the field. |
 
-**The image.** Blue frames mark what the script found and drew. Dashed frames are bubbles left empty. The status line under the image says how many bubbles were found and filled, and warns when character detection is off.
+### Tools
 
-**The side panel**, from top to bottom: the three text fields, the mark buttons, the drawing tools with a card per area, the look, and fine tuning.
+The tools stand in a rail at the left of the image. Each has a key.
 
-![The side panel, with Fine tuning opened](docs/images/panel.png)
+| Tool | Key | What it does |
+|---|---|---|
+| Arrow | V | Draws nothing. Drag captions, effects and areas; click an area to change it. |
+| Bubble | B | Puts a ready-made bubble on the image. |
+| Brush | P | Paints an area of any shape. |
+| Eraser | E | Rubs out what was painted. |
+| New area | N | The next thing you draw starts a new area, even on top of the picked one. |
+
+The keys go by their place on the keyboard, so they work in any layout. They do nothing while you type in a text field. The tools are described under [Bubbles and areas of your own](#bubbles-and-areas-of-your-own).
+
+### The image
+
+What stands over the image is colored by where it comes from:
+
+| Color | What it marks |
+|---|---|
+| Blue | What the script found or placed: the bubbles in the art, and a caption or an effect at its automatic place. |
+| Purple | What you placed or drew: a caption or an effect moved by hand, and every area. |
+| Red | An area to keep clear. |
+| Dashed amber frame | A bubble that was found and left empty. |
+
+Every bubble found carries its number in a round badge. The status line under the image says how many bubbles were found and filled, and warns when character detection is off. Once something has been placed by hand, its right end says how many things, with `Place all automatically` to hand them all back to the script.
+
+With no image to letter, the image area says what to do first.
+
+### The panel
+
+The panel is a column of sections that fold. A folded section says in a line what it holds.
+
+| Section | What is in it |
+|---|---|
+| `Bubbles` | The text for the bubbles in the art, and its look. |
+| `Caption` | The text outside the bubbles, and its look. |
+| `Sound effects` | The effects, and their look. `Shuffle` in its header puts them somewhere else. |
+| `Areas drawn by hand` | What the tool in hand will draw, and the areas drawn so far. |
+| `All text` | What every kind of text shares. |
+| `Automatic mode` | Lettering during generation. Not in ComfyUI. |
+
+Each of the three text sections has its text field with a bar of marks on top, the lists of its look, and `More…` with the rest of its settings. A setting shared by several kinds of text says so in its label.
+
+![The panel: Bubbles, Caption, and Sound effects with All text, each opened with More](docs/images/panel.png)
 
 ## Writing the text
 
@@ -122,37 +165,54 @@ There are three fields.
 
 | Field | What goes in |
 |---|---|
-| **Bubbles** | One line per bubble, in reading order: top to bottom, left to right. An empty line skips a bubble. Line breaks inside a bubble are chosen for you, at the largest font size that fits, with short lines at the top and bottom and long ones in the middle. |
-| **Caption** | Text outside the bubbles: straight on the art, or in a bubble drawn for it (`Look` → `Caption` → `Put in a bubble`). |
-| **Sound effects** | One per line. Each is drawn big, tilted and outlined in a calm, empty part of the art, clear of the bubbles, the characters, the caption and the other effects. `THUD x3` stacks the word three times in a ragged column. `Move` sends them all somewhere else. |
+| **Bubbles** | One line per bubble, in reading order: top to bottom, left to right. An empty line leaves a bubble empty. Line breaks inside a bubble are chosen for you, at the largest font size that fits, with short lines at the top and bottom and long ones in the middle. |
+| **Caption** | Text outside the bubbles: straight on the art, or in a bubble drawn for it (`Put in a bubble` in the `Caption` section). |
+| **Sound effects** | One per line. Each is drawn big, tilted and outlined in a calm, empty part of the art, clear of the bubbles, the characters, the caption and the other effects. `THUD x3` stacks the word three times in a ragged column. `Shuffle` sends them all somewhere else. |
 
-In any field:
-
-- `*word*` makes a word bigger.
-- A mark button inserts a mark at the cursor of the field you used last.
-- A word may break after a hyphen you typed (`H-m-m`) when that lets the text be bigger.
+A word may break after a hyphen you typed (`H-m-m`) when that lets the text be bigger.
 
 ![Two bubbles filled and two sound effects placed](docs/images/sfx.png)
 
-**When a line does not fit.** A line goes into a bubble only if it fits at a readable size in at most eight lines. In a bubble too tight for an emphasised word, the emphasis is dropped first; then the longest words are broken with a hyphen (`UNBE-` / `LIEVABLE`). A line that still does not fit is added to the caption, and the next line gets that bubble. To always write into the bubbles, however small, untick `Text too long for a bubble goes to the caption` under `Fine tuning`.
+### Which bubble a line went to
 
-### Marks
+Beside every line of the `Bubbles` field stands a marker.
 
-Comic fonts have no hearts or stars, so marks are drawn as shapes, in the colors of the text they stand in. The panel shows eight of them; `All 37 marks` shows the rest.
+| Marker | Meaning |
+|---|---|
+| A number in a filled badge | The line went into the bubble with that number. |
+| A number in a dashed, hollow badge | An empty line: it left that bubble empty. |
+| `cap` | The line fitted no bubble and went to the caption. |
+| `—` | The line went nowhere: there was no bubble left for it. |
+| A number in a dashed gray badge | The text has changed since the image was drawn. Leave the field to draw it. |
 
-![All 37 marks](docs/images/marks.png)
+The numbers are not always 1, 2, 3 in a row: a line that does not fit a bubble tries the next one.
 
-Typing the character works as well as pressing its button: `♥` (or `<3`) `♡` `💕` `💔` `💋` `★` `☆` `✦` `✨` `💥` `💢` `⚡` `🔥` `💧` `💦` `♨` `💨` `〃` `〰` `🌀` `💤` `♪` `♫` `✿` `🌙` `☀` `♂` `♀` `✖` `○` `→` `←` `↑` `↓` `♦` `♠` `♣`.
+**When a line does not fit.** A line goes into a bubble only if it fits at a readable size in at most eight lines. In a bubble too tight for an emphasised word, the emphasis is dropped first; then the longest words are broken with a hyphen (`UNBE-` / `LIEVABLE`). A line that still does not fit goes to the caption, and the next line gets that bubble. To always write into the bubbles, however small, switch off `Text too long for a bubble goes to the caption` under `Bubbles` › `More…`; lines left without a bubble are then dropped.
+
+### Marks and bigger words
+
+Every text field has a bar on top.
+
+| On the bar | What it does |
+|---|---|
+| `A+` | Makes a word bigger by putting stars round it: `*word*`. It takes what you selected, or the word the caret is in. |
+| Four marks | The marks you used last. A click puts one in at the caret. |
+| `More` | Every mark, in four groups: Love, Shine, Feelings and weather, Signs. |
+| `Clear` | Empties the field. |
+
+![The marks of a text field, with every mark shown](docs/images/marks.png)
+
+Comic fonts have no hearts or stars, so marks are drawn as shapes, in the colors of the text they stand in. The buttons show the shapes that will be drawn. Typing the character works as well as pressing its button: `♥` (or `<3`) `♡` `💕` `💔` `💋` `★` `☆` `✦` `✨` `💥` `💢` `⚡` `🔥` `💧` `💦` `♨` `💨` `〃` `〰` `🌀` `💤` `♪` `♫` `✿` `🌙` `☀` `♂` `♀` `✖` `○` `→` `←` `↑` `↓` `♦` `♠` `♣`.
 
 ## The look
 
-Bubbles, the caption and sound effects each have a look of their own. The `Look` switch chooses whose lists are shown.
+Bubbles, the caption and sound effects each have a look of their own, set in their own section.
 
 | List | What it does |
 |---|---|
-| **Font** | Every entry of the list is shown in its own font. The caption can use the bubble font or one of its own. |
-| **Colors** | A preset: fill, outline, and where it suits, a second outline, a gradient or a glow. `auto` is white with a dark outline (black inside a light bubble). `from the art` takes the strongest color of the image. `custom` uses the colors typed under `Fine tuning`. |
-| **Mood** | How unruly the letters are, from `calm` to `shaky`. `custom` uses the sliders under `Fine tuning`. |
+| **Font** | Every entry of the list is shown in its own font. The caption can use the bubble font (`same as bubbles`) or one of its own. |
+| **Colors** | A preset: fill, outline, and where it suits, a second outline, a gradient or a glow. `auto` is white with a dark outline (black inside a light bubble). `from the art` takes the strongest color of the image. `custom` uses colors of your own. |
+| **Mood** | How unruly the letters are, from `calm` to `shaky`. `custom` uses sliders of your own. |
 | **Marks around** | Small marks scattered around a caption or an effect. |
 
 ![The color presets](docs/images/colors.png)
@@ -160,6 +220,10 @@ Bubbles, the caption and sound effects each have a look of their own. The `Look`
 ![The moods](docs/images/moods.png)
 
 ![Marks around a text](docs/images/marks-around.png)
+
+**Colors of your own.** With `Colors` set to `custom`, the section's `More…` shows its colors. Each has a swatch and a switch: `auto` leaves the color to the script, `pick…` opens the system's color picker. The text color is one setting for the bubbles and the caption, and its label says so.
+
+**A mood of your own.** With `Mood` set to `custom`, the sliders appear under the list. There is one set of them: every kind of text set to `custom` follows it.
 
 The caption has a few more lists:
 
@@ -174,63 +238,64 @@ The last two appear once a bubble shape is chosen.
 
 ## Placing things by hand
 
-The caption, its drawn bubble and every sound effect can be moved on the image.
+The caption, its drawn bubble and every sound effect can be moved on the image, with the Arrow tool.
 
 - **Drag** a frame to move it.
-- **Click** a frame to pick it. The square at its corner resizes it; the round knob on a stem above it turns it.
+- **Click** a frame to pick it. The square at a corner resizes it; the round knob on a stem turns it.
 - **Arrow keys** nudge the picked item by one pixel, by ten with Shift.
-- `Place automatically` under a picked frame, or Delete, hands that item back to the script.
+- `Place automatically` beside a picked frame, or Delete, hands that item back to the script. `Place all automatically` in the status line does it for all of them.
 
-![A picked caption with its resize and turn handles](docs/images/editor-handles.png)
+![A caption placed by hand: a purple frame, the knob that turns it and the corner that resizes it](docs/images/editor-handles.png)
+
+A frame turns purple once you have placed it. Its handles stand where they can be reached: inside the visible part of the image area, and off the frames of other things, so the knob may be above, below or beside the frame.
 
 What you placed stays where it is when the texts or the look change, and everything placed automatically keeps off it. Texts inside bubbles found in the art are always fitted by the script.
 
 ## Bubbles and areas of your own
 
-When the model drew no bubble where you need one, make it yourself. Under `Areas drawn by hand` there are four tools:
-
-| Tool | What it does |
-|---|---|
-| **Arrow** | Draws nothing. Drag areas, captions and effects; click an area to edit its text and see its handles. |
-| **Bubble** | Puts a ready-made bubble on the image. |
-| **Brush** | Paints an area of any shape. A slider sets the width, a ring on the image shows it. |
-| **Eraser** | Rubs out whatever it passes over, in every area. |
+When the model drew no bubble where you need one, make it yourself. An area is a place on the image that you mark out; text is fitted into it. The text of an area is typed in a field right on the image, and its settings are in the `Areas drawn by hand` section.
 
 ### Ready-made bubbles
 
-Choose a shape, a tail (eight directions, or none) and light or dark, then drag on the image where the bubble goes. A click alone puts down one of a handy size.
+Take the Bubble tool. While no area is picked, the section shows what the tool will draw: the shape, the `Tail` (eight directions, or none) and the `Bubble color`. Drag on the image where the bubble goes; a click alone puts down one of a handy size.
 
 ![The five bubble shapes, and a dark one](docs/images/bubble-templates.png)
 
-A field for the text opens right beside the bubble. Type, then press `Done` or Ctrl+Enter: the bubble is painted and the text is fitted inside.
+A field for the text opens beside the bubble. Type, then press `Done` or Ctrl+Enter: the bubble is painted and the text is fitted inside. The bubble becomes a row in the section.
 
-![Putting a burst bubble on the image](docs/images/editor-bubble-tool.png)
+![The Bubble tool: what it will draw, and a bubble already put on the image](docs/images/editor-bubble-tool.png)
 
 ### Painted areas
 
-With the brush, paint the place where text should go; a text field opens beside it in the same way. Paint that touches the picked area adds to it. Paint anywhere else starts a new area, so two bubbles are two areas with a text each. `New area` starts one even on top of the picked one.
+With the Brush, paint the place where text should go; the same field opens beside it. A slider sets the width, and a ring on the image shows it. Paint that touches the picked area adds to it. Paint anywhere else starts a new area, so two bubbles are two areas with a text each. `New area` starts one even on top of the picked one. The Eraser rubs out whatever it passes over, in every area.
 
 **Text along a stroke.** An area made of a single brush stroke starts with `Write along the brush stroke` on: the words run along the stroke and bend with it, in the direction you drew it, with letters about as tall as the brush is wide. Paint one stroke along a contour to set a word on it. `Turn the text round` runs it the other way.
 
-![Painting a stroke and writing along it](docs/images/editor-brush.png)
+![A brush stroke with its text field on the image, and its card in the panel](docs/images/editor-brush.png)
 
-### What an area can be
+### The picked area and the others
 
-Every area has a card in the panel.
+Click an area with the Arrow, or click its row, to pick it. The field with its text opens on the image, with its own bar of marks; handles appear on the area; and its row in the section becomes a card with its settings.
 
-| Kind | What happens in it |
+| On the card | What it does |
 |---|---|
-| `Text` | The text is fitted into the area as large as its shape allows. `On the art` draws it with the caption's outline; `Light bubble` and `Dark bubble` paint the area as a bubble first, so any shape you paint becomes a bubble. |
-| `Effect` | The text is one sound effect, sized to the area and put in its middle. |
-| `Keep out` | Nothing the script places lands there. Use it to protect a face or a detail. |
+| `Text` / `Effect` / `Keep out` | What the area is for. `Text`: the text is fitted in, as large as the shape allows. `Effect`: the text is one sound effect, sized to the area and put in its middle. `Keep out`: nothing the script places lands there; use it to protect a face or a detail. |
+| Shape and `Tail` | For a ready-made bubble: its shape and tail can still be changed. |
+| `On the art` / `Light bubble` / `Dark bubble` | For `Text`: draw it with the caption's outline, or paint the area as a bubble first, so that any shape you paint becomes a bubble. |
+| `Write along the brush stroke`, `Turn the text round` | For an area with a brush stroke, see above. |
+| `Size, %` | How large the text is against what the area gives it; above 100 it may reach out of the area. |
+| `Tilt, °` | The tilt of the text. An effect is tilted at random until you set it. |
+| `Undo stroke` | Takes back the last thing drawn in this area. |
+| `Delete` | Removes the area. |
+| `Done` | Finishes with the area: it becomes a row again. |
 
-The card also has `Size` (how large the text is against what the area gives it; above 100% it may reach out of the area), `Tilt`, `Undo` (takes back the last thing drawn there) and `Delete`. A bubble made from a template can still change its shape and tail there.
+The corner square makes the area larger or smaller about its middle, the knob on the stem turns it, and the text inside turns and resizes with it. A drag moves the area with everything in it.
 
-With the arrow, click an area to bring up its text field and handles: the corner square makes the area larger or smaller about its middle, the knob on the stem turns it, and the text inside turns and resizes with it. A drag moves the area with everything in it.
+![An area picked with the Arrow: its text field on the image, its handles, and its card](docs/images/editor-area.png)
 
-![An area picked with the arrow: its text field, handles and card](docs/images/editor-area.png)
+Every other area is one row: a swatch of its color, its number, what it is for, and the start of its text, with a button to delete it. The tool's own settings come back once no area is picked, so a bubble's shape is never on the panel twice.
 
-An area's tint shows only while you work on it. Once it has its text and the field is closed, the tint goes; pointing at the area with the arrow brings it back, and the eraser shows every area.
+An area's tint shows only while you work on it. Once it has its text and the field is closed, the tint goes; pointing at the area with the Arrow brings it back, and the Eraser shows every area.
 
 ![Three areas as drawn, and what was written into them](docs/images/areas.png)
 
@@ -245,7 +310,7 @@ The look is remembered between sessions in `user_settings.json` in the extension
 
 ## Lettering every image automatically
 
-Tick `Letter every new image while it is generated` at the bottom of the panel. From then on every image a generation makes is lettered with the three texts and the look as they stand in the editor, and arrives in the gallery already lettered. The editor can still be opened on it: it works from the clean copy.
+Tick `Letter every new image while it is generated` in the `Automatic mode` section of the panel. The chip in the top bar says `Auto on` from then on, and every image a generation makes is lettered with the three texts and the look as they stand in the editor, and arrives in the gallery already lettered. The editor can still be opened on it: it works from the clean copy.
 
 Areas and hand placement are not part of this mode: they belong to one image.
 
@@ -273,7 +338,7 @@ The node has the same editor, behind the `Open editor` button at the bottom of t
 3. Work as described above: texts, look, dragging, bubbles, areas.
 4. Run the workflow again: it gives the picture the editor showed.
 
-![The editor opened from the node](docs/images/comfy-editor.png)
+![The editor opened from the node: Save is the main button, and there is no To gallery and no automatic mode](docs/images/comfy-editor.png)
 
 What differs from the web UI family:
 
@@ -281,34 +346,70 @@ What differs from the web UI family:
 |---|---|
 | **The node is the memory** | Every change in the editor is written back into the node: texts and look into its widgets, hand placement and areas into a hidden `layout` field. The workflow file carries everything; `user_settings.json` is not used. |
 | **`Save`** | Writes the picture into ComfyUI's output folder straight away, as `ComfyUI_lettered_00001_.png` and so on. |
-| **No `To gallery`, no automatic mode** | The node letters every run by itself. |
+| **No `To gallery`, no automatic mode** | The node letters every run by itself. `Save` is the main button of the top bar, and the `Auto` chip and the `Automatic mode` section are not there. |
 | **Random seeds** | Hand placement and areas are kept as positions on the image: with a new seed the next image gets them in the same places. |
 | **Batches** | The editor shows the first image; the layout goes onto all of them. |
 | **`show_numbers`** | A node-only switch: draws each bubble's number instead of text, to see the reading order without opening the editor. |
 
-## Fine tuning
+## More settings
 
-`Fine tuning` at the bottom of the panel opens the sliders, grouped by kind of text. `Reset the look` puts everything back; `Keep the fonts` leaves the three fonts alone.
+The settings that are needed less often are behind `More…` in each text section, and in `All text`. A label is short; pointing at it shows it in full.
 
-| Group | Option | What it does |
-|---|---|---|
-| All text | `Capital letters` | Comic-style capitals. |
-| | `Soften the edges` | A slight blur that blends the letters with the art. |
-| | `Uneven ink` | Makes the fill patchy. |
-| | `Bend into an arc`, `Tilt` | Bend and tilt of the whole block. |
-| | `Opacity` | Transparency of the text. |
-| Bubbles | `Erase the letters the model drew` | Wipes a bubble clean before writing. |
-| | `Text too long for a bubble goes to the caption` | See [When a line does not fit](#writing-the-text). |
-| | `Largest font` | The largest size tried in a bubble, % of image height. |
-| | `Smallest readable font` | Below this a line counts as not fitting. |
-| | `Gap to the bubble edge` | Room between the text and the outline. |
-| | `Darkest fill still seen as a bubble` | Default 120. Raise it if a gray object gets lettered; lower it for dim bubbles. |
-| Caption | `Font size`, `Outline width`, `Shadow` | Size (% of image height), outline and drop shadow. |
-| | `Text color`, `Outline color` | `auto` or `#RRGGBB`. Used when `Colors` is `custom`. |
-| Sound effects | `Font size`, `Largest tilt`, `Opacity` | Size, the largest random tilt, transparency. |
-| | `Arrangement number` | Where the effects land. `Move` raises it by one. |
-| | `Color` | `auto` or `#RRGGBB`. Used when `Colors` is `custom`. |
-| Mood: custom | `Letters wobble`, `Letters differ in size`, `Ragged edges`, `Lines tilt`, `Lines shift sideways`, `Line spacing`, `Wobble pattern number` | The sliders behind the `custom` mood. |
+**`Bubbles` › `More…`**
+
+| Setting | What it does |
+|---|---|
+| `Erase the letters the model drew` | Wipes a bubble clean before writing. |
+| `Text too long for a bubble goes to the caption` | See [When a line does not fit](#which-bubble-a-line-went-to). |
+| `Largest font, %` | The largest font tried in a bubble, % of image height. |
+| `Smallest font, %` | The smallest font still readable, % of image height. Below it a line counts as not fitting. |
+| `Gap to the edge` | The space between the text and the bubble's edge. |
+| `Darkest bubble fill` | The darkest fill still taken for a bubble, 0 to 255; 120 at the start. Raise it if a gray object gets lettered; lower it for dim bubbles. |
+| `Text color (shared with Caption)` | With `Colors` set to `custom`. |
+
+**`Caption` › `More…`**
+
+| Setting | What it does |
+|---|---|
+| `Font size, %` | The caption's font size, % of image height. |
+| `Outline width` | The width of the caption's outline. |
+| `Shadow` | The strength of the caption's shadow. |
+| `Text color (shared with Bubbles)`, `Outline color` | With `Colors` set to `custom`. |
+
+**`Sound effects` › `More…`**
+
+| Setting | What it does |
+|---|---|
+| `Font size, %` | The effects' font size, % of image height. |
+| `Largest tilt, °` | Effects tilt at random, up to this many degrees. |
+| `Opacity` | How solid the effects are. |
+| `Color` | With `Colors` set to `custom`. |
+
+Where the effects land is not a number to set: `Shuffle` in the section's header arranges them differently, and Undo brings the last arrangement back.
+
+**`All text`**
+
+| Setting | What it does |
+|---|---|
+| `Capital letters` | Comic-style capitals. |
+| `Soften edges, px` | Blurs the letter edges a little, which blends them with the art. |
+| `Uneven ink` | Ink that is thinner in places, like a worn stamp. |
+| `Bend into an arc` | Curves the lines up or down. |
+| `Tilt, °` | Tilts all text. |
+| `Opacity` | How solid all text is. |
+| `Pattern`, `Try another` | One number picks the pattern of the letters' wobble, where the marks around a text fall, and the outline of the caption's drawn bubble. `Try another` takes the next one; the number is shown beside it. |
+| `Reset the look` | Puts every setting of the look back. With `Keep the fonts` ticked, the three fonts stay. |
+
+**`Custom mood (shared by all text)`**, under `Mood` when it is `custom`
+
+| Setting | What it does |
+|---|---|
+| `Letters wobble` | Letters move off the line. |
+| `Letter sizes vary` | Letters differ in size. |
+| `Ragged edges` | Letter edges are torn. |
+| `Lines tilt, °` | Each line tilts a little. |
+| `Lines shift` | Lines move sideways. |
+| `Line spacing` | The space between lines. |
 
 ## Fonts
 
@@ -321,7 +422,7 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 ## Limits
 
 - **What counts as a bubble.** A flat white, gray or lightly tinted (cream, beige) fill enclosed by a dark outline, or a flat near-black fill enclosed by a bright outline, with a smooth, nearly convex shape. Spiky or cloud-shaped bubbles, bubbles without an outline, translucent or gradient bubbles and rectangular caption boxes are not found. Use a ready-made bubble or a painted area for those.
-- **False finds.** Anything that looks the same gets lettered too, such as a blank sheet of paper on a wall. The frames show what was found and number it: use an empty line to skip a number.
+- **False finds.** Anything that looks the same gets lettered too, such as a blank sheet of paper on a wall. The badges on the image number what was found: use an empty line to leave a number empty.
 - **Narrow bubbles.** A narrow bubble cannot hold a long word at a readable size. Such text goes to the caption.
 - **Crowded images.** When a character fills most of the frame there may be no free place. A drawn bubble is then tried tall and narrow, then shrunk, and put where it covers the least, keeping off heads and bubbles first. The head is taken to be the top quarter of a character, so this fails for a character lying down or upside down.
 - **Fixed positions avoid nothing.** A caption set to `top` or a corner goes there whatever is underneath.
@@ -334,14 +435,16 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 | What you see | What to do |
 |---|---|
 | No speech-bubble icon under `Generate` | Restart the web UI after installing, then hard-refresh the page (Ctrl+F5). |
-| `The gallery is empty: generate an image first.` | Generate an image, or switch to `Own image`. |
+| `Nothing to letter yet` | The gallery of the tab is empty. Generate an image, or press `Letter your own image`. |
 | `The image is gone from memory. Load it again.` | The server keeps the last six images. Close the editor and open it again on the image. |
-| A bubble is not found | Lower `Darkest fill still seen as a bubble`, or put a ready-made bubble over it. |
-| Something that is not a bubble gets text | Leave its line empty, or raise `Darkest fill still seen as a bubble`. |
+| A bubble is not found | Lower `Darkest bubble fill` under `Bubbles` › `More…`, or put a ready-made bubble over it. |
+| Something that is not a bubble gets text | Leave its line empty, or raise `Darkest bubble fill`. |
 | Text lands on a character | See [Keeping text off the characters](#keeping-text-off-the-characters), or drag it, or paint a `Keep out` area. |
 | A `Light bubble` area is not painted | An area is painted once it has text and the field is closed with `Done` or Ctrl+Enter. |
 | The editor looks old after an update | Hard-refresh the page (Ctrl+F5). |
-| ComfyUI: `Open editor` shows no image | Run the workflow once first: the editor shows the image the node last received. |
+| A line of `Bubbles` shows `cap` or `—` | It fitted no bubble. Shorten it, lower `Smallest font, %`, or put a bubble of your own where it should go. |
+| The marks on the bars are plain characters, some in color | The host was not restarted after the update: restart it. |
+| ComfyUI: `The node has no image yet` | Run the workflow once first: the editor shows the image the node last received. |
 
 ## For developers
 

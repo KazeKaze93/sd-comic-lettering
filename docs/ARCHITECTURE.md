@@ -166,18 +166,27 @@ Vite + React 19 + TypeScript + Zustand + Tailwind, with its own `cl-*` color tok
 | File | Role |
 |---|---|
 | `main.tsx`, `App.tsx` | Mounting; top bar, status line, the `SDCL_INIT` listener |
-| `store.ts` | The whole state and every action (Zustand): slots per source, texts, settings, pins, regions, tools, rendering |
+| `store.ts` | The whole state and every action (Zustand): slots per source, texts, settings, pins, regions, tools, rendering; the history (one timeline, 50 steps); which sections of the panel are open; the marks used last |
 | `api.ts` | `fetch` wrappers for the routes |
 | `bridge.ts` | `postMessage` to and from the host page |
 | `types.ts` | `Settings`, `SceneItem`, `Region`, `Shape`, `Pin`, `Slot`, ... |
-| `geometry.ts` | Bubble templates as polygons, bounding boxes, rotation |
-| `components/Canvas.tsx` | The image, frames of found bubbles, areas, the drawing layer, handles, the text field beside an area |
-| `components/SidePanel.tsx` | Text fields, marks, drawing tools, area cards, look, fine tuning |
-| `components/controls.tsx` | `Button`, `Segmented`, `Select`, `Slider`, `Toggle`, `TextInput`, `Label` |
+| `geometry.ts` | Bubble templates as polygons, bounding boxes, rotation; `placeHandles()`, which side of a frame its knob and corner go to |
+| `lines.ts` | `lineFates()`: which bubble each line of the Bubbles field went to, replayed from the scene |
+| `assetStyles.ts` | One style sheet written from `/options`: the fonts for the lists, the masks of the marks for the buttons |
+| `components/Canvas.tsx` | The image, numbers and frames of found bubbles, areas, the drawing layer, handles, the text field beside an area, what to do first when there is no image |
+| `components/ToolRail.tsx` | The drawing tools beside the image |
+| `components/SidePanel.tsx` | The sections: one per kind of text with its field, look and further settings; the areas; what all text shares; automatic mode |
+| `components/BubblesField.tsx` | The Bubbles text field with its gutter of line markers |
+| `components/MarksBar.tsx` | The bar over a text field: bigger words, the marks used last, the picker of all marks |
+| `components/controls.tsx` | `Button`, `IconButton`, `Icon`, `Section`, `Segmented`, `Select`, `Slider`, `ColorField`, `Toggle`, `Label` |
 
 **Slots.** The store keeps one slot per source (`generation`, `own`): the session id, the image size, the last scene's items and bubbles, pins and regions. Switching the source switches the slot; nothing is lost.
 
 **Rendering is debounced by equality, not by time.** `render()` serialises its inputs and returns at once when they equal the inputs of the last finished render (`slot.applied`).
+
+**History.** Undo and redo hang on `render()`. When a render goes ahead with inputs that differ from `slot.applied`, what the image showed until then is pushed onto the past: `slot.applied` is exactly that, the texts, the settings, the pins and the regions of the last finished render. So one step is one edit as the user sees it (a text field left, a slider let go, a drag ended), never a keystroke. Undo puts the live state onto the future, restores the top of the past and renders again; a render caused by undo or redo, or by showing another image (`setSource`, `hostOpened`, `loadFile`), is not recorded. A restore also calls `persist()`, so `user_settings.json` or the ComfyUI node follows.
+
+There is one timeline, not one per slot. The texts and the settings belong to the editor and only pins and regions belong to an image, so two timelines would each claim the same texts and settings: the first undo after switching images would take back a change of the look made on the other image. Each step carries its source and session; pins and regions are restored only onto the image they were made on, the texts and the look always. Tools, the view, which sections are open and the automatic mode are not history.
 
 **Dragging does not wait for the server.** While an item is dragged, the page moves a cut-out of the current picture along with the pointer (the *ghost*). The exact picture replaces it when the render comes back.
 
