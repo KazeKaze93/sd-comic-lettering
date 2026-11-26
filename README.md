@@ -32,19 +32,24 @@ Restart the host afterwards.
 The `Comic Lettering` panel sits under the result gallery, in txt2img and img2img. It starts collapsed.
 
 1. Generate an image.
-2. Type the text and press **Apply**. The images of the last generation are lettered again from their clean copies, so nothing is generated twice. Change the text and press Apply again; changing any list re-applies at once.
+2. Type the text and press **Apply**. The images of the last generation are lettered again from their clean copies, so nothing is generated twice.
 3. Save the result with the gallery's own buttons, or right-click the image.
 
-| Button | What it does |
+After the first Apply everything applies by itself: a list or a checkbox when it changes, a slider when it is released, a text field when you leave it. The status line at the top of the panel says how many bubbles were found and filled.
+
+| Control | What it does |
 |---|---|
 | `Apply` | Letters the images of the last generation. |
-| `Remove text` | Shows those images as they were generated, without any lettering. |
-| `Move SFX` | Puts the sound effects somewhere else. |
-| `Reset options` | Puts every list and slider back to its default. With `Reset keeps fonts` ticked the three font lists stay. |
-| `Clear bubbles` / `caption` / `sfx` | Empties that text field. |
-| `♥` `★` `✦` `♪` `💢` `💧` | Adds that mark to the field chosen under `Insert a symbol into`. |
+| `Show original` | Shows those images as they were generated. The texts stay in their fields, and Apply puts them back. |
+| `Clear` under a field | Empties that field. |
+| `Show numbers` under Bubbles | Draws each bubble's number instead of the text, to see what was found and in what order. |
+| `Move` under Sound effects | Arranges the sound effects differently. |
+| `♥` `★` `✦` `♪` `💢` `💧` | Inserts that mark at the cursor of the text field you used last. |
+| `Look of` | Chooses whose lists are shown below: bubbles, caption or sound effects. |
+| `Letter every new image while it is generated` | Letters images during generation instead of afterwards. |
+| `Fine tuning` | Sizes, outlines, the custom mood and the bubble detector, grouped by kind of text. Its last row resets the look; `Keep the fonts` leaves the three fonts alone. |
 
-Tick **Every new image** to letter images during generation instead. The lists and the options under `Fine tuning` are remembered in `user_settings.json`; the texts and the two checkboxes are not.
+The lists and everything under `Fine tuning` are remembered in `user_settings.json`; the texts and the checkboxes next to them are not.
 
 ### Keeping off the characters
 
@@ -64,7 +69,7 @@ Three fields:
 
 - **Bubbles**: one line per bubble, in reading order (top to bottom, left to right). An empty line skips a bubble. Line breaks inside a bubble are placed automatically, at the largest font size that fits, and so that the lines form a diamond: short at the top and bottom, long in the middle.
 - **Caption**: text drawn straight onto the art, outside the bubbles, or inside a bubble drawn for it. With `auto` placement it takes the calmer of top and bottom, keeps off the bubbles and avoids covering a head.
-- **SFX**: sound effects, one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the characters, the caption and the other effects. `FAP x5` stacks the word five times in a ragged column. **Move SFX** puts them somewhere else. Changing the look of an effect does not move it.
+- **Sound effects**: one per line (`SLAP`, `THUD`). Each one is drawn big, tilted and outlined, in its own font, in a calm and empty part of the art, clear of the bubbles, the characters, the caption and the other effects. `FAP x5` stacks the word five times in a ragged column. **Move** arranges them differently. Changing the look of an effect does not move it.
 
 In any field:
 
@@ -72,22 +77,20 @@ In any field:
 - `♥` (or `<3`), `★`, `✦`, `♪`, `💢`, `💧` are drawn as shapes: heart, star, sparkle, note, anger mark, drop.
 - A word may break after a hyphen (`H-m-m`) when that lets the text be bigger.
 
-**Bubble numbers** draws each bubble's number instead of the text, to see which bubbles were found and in what order.
-
-A line goes into a bubble only if it fits at a readable size (`bubble_min_size`). A bubble too small for it is passed over, and lines left without a bubble are added to the caption. Untick `Text that does not fit a bubble goes to the caption` to always write into the bubbles, however small, and drop the lines left over.
+A line goes into a bubble only if it fits at a readable size (`bubble_min_size`). A bubble too small for it is passed over, and lines left without a bubble are added to the caption. Untick `Text too long for a bubble goes to the caption` under `Fine tuning` to always write into the bubbles, however small, and drop the lines left over.
 
 ### Look
 
-Each kind of text (bubbles, caption, SFX) has its own row of lists. Changing any list re-applies the text at once.
+Each kind of text (bubbles, caption, sound effects) has its own lists; `Look of` chooses which are shown.
 
 | List | What it does |
 |---|---|
 | Font | Every entry of the list is drawn in its own font. The caption can use the bubble font or its own. |
 | Colors | `auto` is white with a dark outline (black text inside a light bubble), or the colors typed under `Fine tuning`. `pink`, `gold`, `candy`, `ice`, `blood`, `neon green`, `black on white` are presets with a second outline, a gradient or a glow where it fits. `from the art` takes the strongest color of the image. |
 | Mood | How unruly the letters are. `calm`: straight. `playful`: letters of different sizes, lines tilted. `shout`: more of both. `shaky`: trembling letters. `rough`: ragged, angular edges. `custom`: the sliders under `Fine tuning`. |
-| Extras | Small marks scattered around a caption or an effect: hearts, sparkles, stars, notes, sweat drops, anger marks, motion lines. |
+| Marks around | Small marks scattered around a caption or an effect: hearts, sparkles, stars, notes, sweat drops, anger marks, motion lines. |
 
-The caption has one more row:
+The caption has one more row. `Bubble color` and `Tail` appear only when a bubble shape is chosen:
 
 | List | What it does |
 |---|---|
