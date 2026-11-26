@@ -18,7 +18,6 @@ interface State {
   text: string
   caption: string
   sfx: string
-  numbers: boolean
   settings: Settings
   auto: boolean
   lookOf: LookOf
@@ -46,7 +45,6 @@ interface State {
   hostOpened: (image: HostImage, node?: NodeState) => Promise<void>
   loadFile: (file: Blob, name: string) => Promise<void>
   setField: (field: 'text' | 'caption' | 'sfx', value: string) => void
-  setNumbers: (value: boolean) => void
   setSetting: (key: string, value: string | number | boolean, render?: boolean) => void
   setAuto: (value: boolean) => void
   setLookOf: (value: LookOf) => void
@@ -160,7 +158,6 @@ export const useStore = create<State>((set, get) => {
     text: '',
     caption: '',
     sfx: '',
-    numbers: false,
     settings: {},
     auto: false,
     lookOf: 'bubble',
@@ -280,11 +277,6 @@ export const useStore = create<State>((set, get) => {
     setField: (field, value) => {
       set({ [field]: value } as Pick<State, 'text' | 'caption' | 'sfx'>)
       persist()
-    },
-
-    setNumbers: (value) => {
-      set({ numbers: value })
-      void get().render()
     },
 
     setSetting: (key, value, render = true) => {
@@ -486,13 +478,13 @@ export const useStore = create<State>((set, get) => {
         renderAgain = true
         return
       }
-      const { text, caption, sfx, numbers, settings, source } = state
-      const signature = JSON.stringify([text, caption, sfx, numbers, settings, slot.pins, slot.regions])
+      const { text, caption, sfx, settings, source } = state
+      const signature = JSON.stringify([text, caption, sfx, settings, slot.pins, slot.regions])
       if (signature === slot.applied) return
       rendering = true
       set({ busy: true, error: null })
       try {
-        const result = await api.render(slot.session, text, caption, sfx, numbers, settings, slot.pins, slot.regions)
+        const result = await api.render(slot.session, text, caption, sfx, settings, slot.pins, slot.regions)
         set((now) => {
           const held = now.slots[source]
           if (!held || held.session !== slot.session) return { busy: false }

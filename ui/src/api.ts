@@ -49,11 +49,10 @@ export const api = {
     text: string,
     caption: string,
     sfx: string,
-    numbers: boolean,
     settings: Settings,
     pins: Record<string, Pin>,
     regions: Region[],
-  ) => post<RenderResult>('/render', { session, text, caption, sfx, numbers, settings, pins, regions }),
+  ) => post<RenderResult>('/render', { session, text, caption, sfx, settings, pins, regions }),
 
   saveSettings: (settings: Settings, auto: Options['auto']) => post<{ ok: boolean }>('/settings', { settings, auto }),
 
