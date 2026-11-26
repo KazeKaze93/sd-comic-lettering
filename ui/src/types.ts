@@ -43,6 +43,8 @@ export interface SceneItem {
 export type Shape =
   | { type: 'polygon'; points: [number, number][] }
   | { type: 'stroke'; points: [number, number][]; width: number }
+  /** Rubs out what the shapes before it painted. */
+  | { type: 'erase'; points: [number, number][]; width: number }
 
 export type RegionKind = 'text' | 'sfx' | 'keepout'
 
@@ -59,9 +61,11 @@ export interface Region {
   scale?: number
   /** The text runs along the brush stroke and bends with it. */
   follow?: boolean
+  /** Along the stroke the other way round. */
+  flip?: boolean
 }
 
-export type Tool = 'off' | 'lasso' | 'brush'
+export type Tool = 'off' | 'lasso' | 'brush' | 'eraser'
 
 /** What was set by hand for one item; the server decides whatever is left out. */
 export interface Pin {

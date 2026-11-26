@@ -81,24 +81,14 @@ function pathOf(points: [number, number][], closed: boolean) {
   return points.map(([x, y], index) => `${index ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ') + (closed ? ' Z' : '')
 }
 
-function ShapePath({ shape, color, strong }: { shape: Shape; color: string; strong: boolean }) {
-  if (shape.type === 'polygon')
-    return (
-      <path
-        d={pathOf(shape.points, true)}
-        fill={color}
-        fillOpacity={strong ? 0.3 : 0.18}
-        stroke={color}
-        strokeWidth={strong ? 2.5 : 1.5}
-        vectorEffect="non-scaling-stroke"
-      />
-    )
+/** A shape in one flat color: white paints and black rubs out when it is used inside a mask. */
+function ShapePath({ shape, color }: { shape: Shape; color: string }) {
+  if (shape.type === 'polygon') return <path d={pathOf(shape.points, true)} fill={color} />
   return (
     <path
       d={pathOf(shape.points.length > 1 ? shape.points : [shape.points[0], shape.points[0]], false)}
       fill="none"
       stroke={color}
-      strokeOpacity={strong ? 0.4 : 0.25}
       strokeWidth={shape.width}
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -111,12 +101,28 @@ function Areas({ slot, drawing }: { slot: Slot; drawing: Shape | null }) {
   const picked = useStore((state) => state.region)
   return (
     <svg viewBox={`0 0 ${slot.width} ${slot.height}`} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
-      {slot.regions.map((region) =>
-        region.shapes.map((shape, index) => (
-          <ShapePath key={`${region.id}-${index}`} shape={shape} color={TINTS[region.kind]} strong={region.id === picked} />
-        )),
+      {slot.regions.map((region) => (
+        // What the area covers is its shapes in the order they were drawn: paint, then rub out.
+        <g key={region.id}>
+          <mask id={`area-${region.id}`} maskUnits="userSpaceOnUse" x={0} y={0} width={slot.width} height={slot.height}>
+            {region.shapes.map((shape, index) => (
+              <ShapePath key={index} shape={shape} color={shape.type === 'erase' ? 'black' : 'white'} />
+            ))}
+          </mask>
+          <rect
+            width={slot.width}
+            height={slot.height}
+            fill={TINTS[region.kind]}
+            fillOpacity={region.id === picked ? 0.4 : 0.22}
+            mask={`url(#area-${region.id})`}
+          />
+        </g>
+      ))}
+      {drawing && (
+        <g opacity={0.45}>
+          <ShapePath shape={drawing} color={drawing.type === 'erase' ? 'rgb(var(--cl-bg))' : 'rgb(var(--cl-text))'} />
+        </g>
       )}
-      {drawing && <ShapePath shape={drawing} color="rgb(var(--cl-text))" strong />}
     </svg>
   )
 }
@@ -135,7 +141,11 @@ function DrawLayer({ slot, scale, onDraw }: { slot: Slot; scale: number; onDraw:
     return [Math.round(x * 10) / 10, Math.round(y * 10) / 10]
   }
   const shapeOf = (list: [number, number][]): Shape =>
-    tool === 'brush' ? { type: 'stroke', points: list, width } : { type: 'polygon', points: list }
+    tool === 'brush'
+      ? { type: 'stroke', points: list, width }
+      : tool === 'eraser'
+        ? { type: 'erase', points: list, width }
+        : { type: 'polygon', points: list }
 
   return (
     <div

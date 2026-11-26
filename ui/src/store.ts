@@ -56,6 +56,8 @@ interface State {
   /** Change an area; `render` false while its text is being typed. */
   changeRegion: (id: string, change: Partial<Region>, render?: boolean) => void
   removeRegion: (id: string) => void
+  /** Take back the last thing drawn in an area; an area left with nothing painted goes. */
+  undoShape: (id: string) => void
   resetLook: (keepFonts: boolean) => void
   render: () => Promise<void>
   save: () => Promise<void>
@@ -260,7 +262,11 @@ export const useStore = create<State>((set, get) => {
       const picked = slot.regions.find((region) => region.id === state.region)
       let regions: Region[]
       let id = state.region
-      if (picked) {
+      if (shape.type === 'erase') {
+        // The eraser works on the picked area, or on all of them when none is picked.
+        if (!slot.regions.length) return
+        regions = slot.regions.map((region) => (!picked || region === picked ? { ...region, shapes: [...region.shapes, shape] } : region))
+      } else if (picked) {
         regions = slot.regions.map((region) => (region === picked ? { ...region, shapes: [...region.shapes, shape] } : region))
       } else {
         regionCount += 1
@@ -292,6 +298,19 @@ export const useStore = create<State>((set, get) => {
         }
       })
       void get().render()
+    },
+
+    undoShape: (id) => {
+      const state = get()
+      const slot = state.slots[state.source]
+      const region = slot?.regions.find((candidate) => candidate.id === id)
+      if (!slot || !region) return
+      const shapes = region.shapes.slice(0, -1)
+      if (!shapes.some((shape) => shape.type !== 'erase')) {
+        get().removeRegion(id)
+        return
+      }
+      get().changeRegion(id, { shapes })
     },
 
     resetLook: (keepFonts) => {

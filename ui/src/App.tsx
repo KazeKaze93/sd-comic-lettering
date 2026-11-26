@@ -33,7 +33,7 @@ function TopBar() {
           Place all automatically
         </Button>
       )}
-      <Toggle checked={showFrames} onChange={setShowFrames} label="Frames" />
+      <Toggle checked={showFrames} onChange={setShowFrames} label="Frames and areas" />
       <Button active={showOriginal} disabled={!slot} onClick={() => setShowOriginal(!showOriginal)}>
         Original
       </Button>

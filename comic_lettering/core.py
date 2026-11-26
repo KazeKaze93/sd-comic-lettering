@@ -76,7 +76,9 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     what the area would give it (1 by default; above 1 it may reach out of the area).
     "follow": the text runs along the region's longest brush stroke, bending with it, in
     the direction the stroke was drawn (left to right if it was drawn leftwards); its
-    letters are about as tall as the brush is wide.
+    letters are about as tall as the brush is wide. "flip" turns that direction round.
+    A shape {"type": "erase", "points": [...], "width": w} rubs out what the shapes before
+    it painted.
 
     Returns the scene: a dict of plain values (it survives a trip through JSON) that
     draw() turns into the lettered image. scene["items"] lists what is drawn, in order:
@@ -257,11 +259,11 @@ def _regions(regions):
                       and all(isinstance(v, (int, float)) and not isinstance(v, bool) and v == v for v in p)]
             if shape.get("type") == "polygon" and len(points) >= 3:
                 shapes.append({"type": "polygon", "points": points})
-            elif shape.get("type") == "stroke" and points:
+            elif shape.get("type") in ("stroke", "erase") and points:
                 wide = shape.get("width")
                 wide = float(wide) if isinstance(wide, (int, float)) and not isinstance(wide, bool) and wide == wide else 20.0
-                shapes.append({"type": "stroke", "points": points, "width": max(2.0, min(2000.0, wide))})
-        if not shapes:
+                shapes.append({"type": shape["type"], "points": points, "width": max(2.0, min(2000.0, wide))})
+        if not any(shape["type"] != "erase" for shape in shapes):
             continue
         kind = region["kind"]
         text = region.get("text") if isinstance(region.get("text"), str) else ""
@@ -276,7 +278,8 @@ def _regions(regions):
                       "text": "" if kind == "keepout" else text.replace("\r", "").strip(),
                       "fill": region.get("fill") if kind == "text" and region.get("fill") in ("light", "dark") else "none",
                       "rotation": number_of("rotation", -180.0, 180.0, None), "scale": number_of("scale", 0.2, 4.0, 1.0),
-                      "follow": kind != "keepout" and region.get("follow") is True})
+                      "follow": kind != "keepout" and region.get("follow") is True,
+                      "flip": region.get("flip") is True})
         if len(clean) >= 40:
             break
     return clean
@@ -294,11 +297,12 @@ def _region_masks(areas, width, height, static=None, precious=None):
             if shape["type"] == "polygon":
                 pen.polygon(points, fill=255)
             else:
+                ink = 0 if shape["type"] == "erase" else 255  # shapes apply in the order they were drawn
                 wide = shape["width"]
                 if len(points) > 1:
-                    pen.line(points, fill=255, width=int(round(wide)))
+                    pen.line(points, fill=ink, width=int(round(wide)))
                 for x, y in points:  # round ends and joints
-                    pen.ellipse((x - wide / 2.0, y - wide / 2.0, x + wide / 2.0, y + wide / 2.0), fill=255)
+                    pen.ellipse((x - wide / 2.0, y - wide / 2.0, x + wide / 2.0, y + wide / 2.0), fill=ink)
         # A hand is not steady: round the outline off a little.
         soft = canvas.filter(ImageFilter.GaussianBlur(max(1.5, 0.004 * min(width, height))))
         mask = np.asarray(soft) > 127
@@ -380,6 +384,8 @@ def _stroke_line(area):
     run = line[-1] - line[0]
     if abs(run[0]) > abs(run[1]) and run[0] < 0:
         line = line[::-1]
+    if area.get("flip"):
+        line = line[::-1]  # asked for: the other way round, which also turns the letters over
     return line, wide
 
 

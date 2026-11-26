@@ -52,6 +52,7 @@ const TOOLS: { value: Tool; label: string }[] = [
   { value: 'off', label: 'Off' },
   { value: 'lasso', label: 'Outline' },
   { value: 'brush', label: 'Brush' },
+  { value: 'eraser', label: 'Eraser' },
 ]
 const KINDS: { value: RegionKind; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -70,14 +71,14 @@ function AreasPanel() {
   const brush = useStore((state) => state.brush)
   const picked = useStore((state) => state.region)
   const regions = useStore((state) => state.slots[state.source]?.regions)
-  const { setTool, setBrush, pickRegion, changeRegion, removeRegion, render } = useStore.getState()
+  const { setTool, setBrush, pickRegion, changeRegion, removeRegion, undoShape, render } = useStore.getState()
   if (!regions) return null
   return (
     <Section title="Areas drawn by hand">
       <Segmented value={tool} options={TOOLS} onChange={setTool} />
-      {tool === 'brush' && (
+      {(tool === 'brush' || tool === 'eraser') && (
         <Slider
-          label="Brush width, % of the image"
+          label={tool === 'eraser' ? 'Eraser width, % of the image' : 'Brush width, % of the image'}
           value={Math.round(brush * 100)}
           min={1}
           max={30}
@@ -88,10 +89,14 @@ function AreasPanel() {
       )}
       <p className="text-[11px] leading-snug text-cl-muted">
         {tool === 'off'
-          ? 'Pick Outline or Brush and draw on the image. Text or an effect is fitted into the area; a keep-out area is left free.'
-          : picked
-            ? 'Drawing adds to the picked area. Press New area to start another.'
-            : 'Drawing starts a new area.'}
+          ? 'Pick Outline or Brush and draw on the image. Text or an effect is fitted into the area; a keep-out area is left free. Untick Frames and areas at the top to see the result without the tint.'
+          : tool === 'eraser'
+            ? picked
+              ? 'The eraser rubs out the picked area.'
+              : 'The eraser rubs out every area it passes over.'
+            : picked
+              ? 'Drawing adds to the picked area. Press New area to start another.'
+              : 'Drawing starts a new area.'}
       </p>
       {regions.map((region, index) => (
         <div
@@ -101,9 +106,14 @@ function AreasPanel() {
         >
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-cl-text">Area {index + 1}</span>
-            <Button variant="quiet" onClick={() => removeRegion(region.id)}>
-              Delete
-            </Button>
+            <span className="flex items-center gap-1">
+              <Button variant="quiet" onClick={() => undoShape(region.id)} title="Take back the last thing drawn in this area">
+                Undo
+              </Button>
+              <Button variant="quiet" onClick={() => removeRegion(region.id)}>
+                Delete
+              </Button>
+            </span>
           </div>
           <Segmented value={region.kind} options={KINDS} onChange={(kind) => changeRegion(region.id, { kind })} />
           {region.kind === 'text' && (
@@ -128,6 +138,13 @@ function AreasPanel() {
               checked={region.follow === true}
               onChange={(follow) => changeRegion(region.id, { follow })}
               label="Write along the brush stroke"
+            />
+          )}
+          {region.kind !== 'keepout' && region.follow === true && (
+            <Toggle
+              checked={region.flip === true}
+              onChange={(flip) => changeRegion(region.id, { flip })}
+              label="Turn the text round"
             />
           )}
           {region.kind !== 'keepout' && (
@@ -161,7 +178,9 @@ function AreasPanel() {
           )}
         </div>
       ))}
-      {picked && tool !== 'off' && <Button onClick={() => pickRegion(null)}>New area</Button>}
+      {picked && tool !== 'off' && (
+        <Button onClick={() => pickRegion(null)}>{tool === 'eraser' ? 'Erase in all areas' : 'New area'}</Button>
+      )}
     </Section>
   )
 }
