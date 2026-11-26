@@ -100,7 +100,7 @@
         send();  // the page itself asks again with SDCL_READY once it has loaded
     };
 
-    // An icon in the row of tools under Generate, next to Style Grid's when that is installed.
+    // An icon in the row of tools under Generate, just before Style Grid's when that is installed.
     var NS = 'http://www.w3.org/2000/svg';
 
     function icon() {
@@ -184,8 +184,9 @@
         var button = root.querySelector('#comic_lettering_tool_' + which) || toolButton(which);
         var neighbour = root.querySelector('#sg_trigger_' + which);
         if (neighbour && neighbour.parentNode) {
-            if (neighbour.nextSibling !== button) {
-                neighbour.parentNode.insertBefore(button, neighbour.nextSibling);
+            // Just before Style Grid's button, so that one stays the last in the row.
+            if (neighbour.previousSibling !== button) {
+                neighbour.parentNode.insertBefore(button, neighbour);
             }
         } else if (button.parentNode !== row) {
             row.appendChild(button);

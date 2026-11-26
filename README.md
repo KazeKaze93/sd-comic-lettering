@@ -85,6 +85,10 @@ For AUTOMATIC1111 / Forge / reForge. ComfyUI has [its own section](#comfyui).
 
 1. Generate an image. Asking for `speech bubble` in the prompt gives the script bubbles to fill.
 2. Press the **speech-bubble icon** in the row of small tool buttons under `Generate`. The editor opens over the page with the image from the gallery.
+
+   <img src="docs/images/tool-icon.png" alt="The speech-bubble icon in the row of tools under Generate, just before Style Grid's icon" width="340">
+
+   The last icon in the picture is Style Grid's, shown when that extension is installed.
 3. Type into `Bubbles`, one line per bubble. The numbers on the image show which bubble takes which line.
 4. Press `To gallery` to put the result into the gallery, or `Save` to write it to disk.
 

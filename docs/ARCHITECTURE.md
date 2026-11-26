@@ -134,7 +134,7 @@ On "Reload UI" the host runs the script again but keeps imported packages. The s
 
 **`javascript/comic_lettering.js`** runs in the Gradio page. It is written in ES5 style (no arrow functions, no template literals), like the host's own scripts.
 
-- It adds a tool button to the row under `Generate` in txt2img and img2img, after Style Grid's button when that extension is present. `dress()` copies the classes and the computed look of a tool button the host made itself, so the icon matches any theme.
+- It adds a tool button to the row under `Generate` in txt2img and img2img, just before Style Grid's button when that extension is present. `dress()` copies the classes and the computed look of a tool button the host made itself, so the icon matches any theme.
 - A click builds a full-screen overlay with an `<iframe src="/comic_lettering/ui">` and tells the page which gallery image is shown.
 - On `SDCL_TO_GALLERY` it keeps the session id in `window.sdclSession` and clicks the hidden button, whose `_js` hands that id to Python; the Python side returns the lettered image into the gallery.
 
