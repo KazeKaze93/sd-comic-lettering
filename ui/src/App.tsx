@@ -11,6 +11,14 @@ const SOURCES: { value: Source; label: string }[] = [
   { value: 'own', label: 'Own image' },
 ]
 
+// Text entry keeps Escape for itself: the first Esc leaves the field (its onBlur applies the text), the next one closes the editor.
+const TEXT_INPUT_TYPES = new Set(['text', 'number', 'search', ''])
+function isTextEntry(target: EventTarget | null): target is HTMLElement {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true
+  return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type)
+}
+
 function TopBar() {
   const embedded = useStore((state) => state.embedded)
   const comfy = useStore((state) => state.comfy)
@@ -89,7 +97,13 @@ export default function App() {
       .start(embedded)
       .then(() => tellHost({ type: 'SDCL_READY' }))
     const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') tellHost({ type: 'SDCL_CLOSE' })
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (isTextEntry(event.target)) {
+        event.preventDefault()
+        event.target.blur()
+        return
+      }
+      tellHost({ type: 'SDCL_CLOSE' })
     }
     window.addEventListener('keydown', key)
     return () => {
