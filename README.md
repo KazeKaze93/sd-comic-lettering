@@ -63,6 +63,20 @@ Add the `Comic Lettering` node (category `image/postprocessing`) between `VAE De
 
 `python -m comic_lettering in.png out.png --text "Hello" --caption "Later..."` from the repo folder.
 
+### From code
+
+`letter()` is two steps that can be used apart:
+
+```python
+from comic_lettering import arrange, draw
+
+scene = arrange(image, "Hi
+Yo", caption="Last day of summer.", sfx="SPLASH")
+result = draw(image, scene)
+```
+
+`arrange()` decides what goes where and draws nothing. The scene it returns is a dict of plain values, so it survives a trip through JSON: `scene["items"]` lists the texts in the bubbles found in the art (`bubble`), the caption (`caption`) or the bubble drawn for it (`balloon`), and the sound effects (`sfx`), each with its text, its font size and its place in pixels. `draw()` draws a scene onto the image it was made for.
+
 ### Text
 
 Three fields:

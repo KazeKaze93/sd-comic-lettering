@@ -28,7 +28,7 @@ REPEAT = re.compile(u"^(.*?\\S)\\s*[xX×]\\s*(\\d{1,2})$")  # "FAP x5"
 def letter(image, text="", caption="", spill=True, placement="auto", style=None, erase=True,
            white_threshold=120, rtl=False, numbers=False, sfx=""):
     # type: (Image.Image, str, str, bool, str, Style, bool, int, bool, bool, str) -> Tuple[Image.Image, Dict]
-    """Letter an image.
+    """Letter an image: arrange() decides where everything goes, draw() draws it.
 
     text: one line per bubble, in reading order (top to bottom, left to right). An
     empty line leaves its bubble alone.
@@ -46,15 +46,41 @@ def letter(image, text="", caption="", spill=True, placement="auto", style=None,
     Text that is placed automatically also keeps off the characters when a person
     segmentation model is available (see people.py); info["characters"] tells.
     """
+    scene = arrange(image, text, caption, spill, placement, style, erase, white_threshold, rtl, numbers, sfx)
+    return draw(image, scene), scene["info"]
+
+
+def arrange(image, text="", caption="", spill=True, placement="auto", style=None, erase=True,
+            white_threshold=120, rtl=False, numbers=False, sfx=""):
+    # type: (Image.Image, str, str, bool, str, Style, bool, int, bool, bool, str) -> Dict
+    """Decide what goes where, without drawing anything. Arguments as for letter().
+
+    Returns the scene: a dict of plain values (it survives a trip through JSON) that
+    draw() turns into the lettered image. scene["items"] lists what is drawn, in order:
+
+      {"kind": "bubble", "bubble": n, ...}   text inside the n-th bubble found in the art
+      {"kind": "caption", ...}               text straight on the art
+      {"kind": "balloon", ...}               text inside a bubble drawn for it
+      {"kind": "sfx", "index": n, ...}       a sound effect
+
+    Every item has its text, its font size in pixels and its place in pixels. "lines"
+    is the text already broken into lines and measured: draw() takes it as it is.
+    scene["info"] is what letter() returns as info.
+    """
     style = style or Style()
     info = {"bubbles_found": 0, "bubbles_filled": 0, "free_text": False, "font_sizes": []}
+    items = []
+    scene = {"version": 1, "size": [image.width, image.height], "style": dict(vars(style)),
+             "white_threshold": int(white_threshold), "rtl": bool(rtl), "erase": bool(erase),
+             "people": False, "empty": False, "items": items, "info": info}
     lines = [line.strip() for line in (text or "").replace("\r", "").split("\n")]
     while lines and not lines[-1]:
         lines.pop()
     caption = (caption or "").replace("\r", "").strip()
     effects = [line.strip() for line in (sfx or "").replace("\r", "").split("\n") if line.strip()]
     if not lines and not caption and not numbers and not effects:
-        return image, info
+        scene["empty"] = True  # nothing asked for: draw() hands the image back untouched
+        return scene
     rgb = np.array(image.convert("RGB"))
     height = rgb.shape[0]
     bubbles = detect_bubbles(rgb, white_threshold, rtl=rtl)  # also so nothing lands on them
@@ -65,6 +91,7 @@ def letter(image, text="", caption="", spill=True, placement="auto", style=None,
         caption = ""
         erase = False
         strict = False
+    scene["erase"] = bool(erase)
     accent = None
     if "from the art" in (style.bubble_colors, style.caption_colors, style.sfx_colors):
         accent = accent_palette(rgb)
@@ -74,50 +101,120 @@ def letter(image, text="", caption="", spill=True, placement="auto", style=None,
         return _fit_bubble(height, bubbles[index], line, bubble_look, strict)
 
     plans, rest = _assign(lines, len(bubbles), fit)
-    if erase:
-        for index, _ in plans:
-            erase_letters(rgb, bubbles[index])
-    out = Image.fromarray(rgb)
-    for index, (laid_out, size, cx, cy) in plans:
-        ink = _bubble_ink(style, bubbles[index], palette(style, "bubble", accent))
-        out = paste_centered(out, render_block(laid_out, size, bubble_look, Paint(ink)), cx, cy)
+    for index, (laid_out, size, cx, cy), line in plans:
+        items.append({"kind": "bubble", "bubble": index, "text": line, "lines": _plain(laid_out),
+                      "size": int(size), "cx": float(cx), "cy": float(cy)})
         info["font_sizes"].append(size)
         info["bubbles_filled"] += 1
+    if erase:
+        # Everything below reads the art as it will be once the letters are erased.
+        for index, _, _ in plans:
+            erase_letters(rgb, bubbles[index])
     free = (rest if spill and not numbers else []) + ([caption] if caption else [])
     effects = [] if numbers else effects
-    # Static obstacles: the bubbles found in the art and, when known, the characters.
+    automatic = bool(effects or (free and (placement == "auto" or style.caption_bubble != "none")))
+    scene["people"] = automatic
+    static, precious, known = _obstacles(rgb, bubbles, automatic)
+    if automatic:
+        info["characters"] = known
+    energy = _energy(rgb) if (effects or (free and style.caption_bubble != "none")) else None
+    caption_box = None
+    if free:
+        item = _place_free(rgb, "\n".join(free), placement, style, static,
+                           palette(style, "caption", accent), energy, precious)
+        items.append(item)
+        caption_box = item["box"]
+        info["free_text"] = True
+        info["font_sizes"].append(item["size"])
+    if effects:
+        taken = np.zeros(rgb.shape[:2], dtype=bool)  # the caption and the effects placed so far
+        _reserve(taken, caption_box)
+        items.extend(_place_sfx(rgb, effects, static, taken, style, energy, precious))
+        info["sfx"] = len(effects)
+    return scene
+
+
+def draw(image, scene):
+    # type: (Image.Image, Dict) -> Image.Image
+    """Draw a scene made by arrange() onto the image it was made for."""
+    if scene.get("empty"):
+        return image
+    style = Style()
+    for key, value in scene["style"].items():
+        setattr(style, key, value)
+    items = scene["items"]
+    rgb = np.array(image.convert("RGB"))
+    height, width = rgb.shape[:2]
+    bubbles = detect_bubbles(rgb, scene["white_threshold"], rtl=scene["rtl"])
+    accent = None
+    if "from the art" in (style.bubble_colors, style.caption_colors, style.sfx_colors):
+        accent = accent_palette(rgb)
+    spoken = [item for item in items if item["kind"] == "bubble" and item["bubble"] < len(bubbles)]
+    if scene["erase"]:
+        for item in spoken:
+            erase_letters(rgb, bubbles[item["bubble"]])
+    out = Image.fromarray(rgb)
+    bubble_look = voice(style, "bubble")
+    for item in spoken:
+        ink = _bubble_ink(style, bubbles[item["bubble"]], palette(style, "bubble", accent))
+        out = paste_centered(out, render_block(_lines(item), item["size"], bubble_look, Paint(ink)),
+                             item["cx"], item["cy"])
+    # The marks around a text keep off the same things the placement kept off.
+    static, precious, _ = _obstacles(rgb, bubbles, scene["people"])
+    taken = np.zeros(rgb.shape[:2], dtype=bool)
+    for item in items:
+        if item["kind"] == "caption":
+            out = _draw_caption(out, item, style, palette(style, "caption", accent), precious)
+            _reserve(taken, item["box"])
+        elif item["kind"] == "balloon":
+            out = _draw_balloon(out, item, style, palette(style, "caption", accent), precious)
+            _reserve(taken, item["box"])
+        elif item["kind"] == "sfx":
+            out = _draw_sfx(out, item, static, taken, style, palette(style, "sfx", accent), width, height)
+            _reserve(taken, item["room"])
+    return out.convert("RGB")
+
+
+def _plain(lines):
+    """Laid-out lines as plain lists, for the scene: [[[word, emphasized, width, glued], ...], width]."""
+    return [[[[word, bool(emph), float(word_w), bool(glue)] for word, emph, word_w, glue in words], float(line_w)]
+            for words, line_w in lines]
+
+
+def _lines(item):
+    """The lines of a scene item in the form the renderer takes."""
+    return [([tuple(word) for word in words], line_w) for words, line_w in item["lines"]]
+
+
+def _obstacles(rgb, bubbles, with_people):
+    """(static, precious, characters known): what text must keep off.
+
+    static: the bubbles found in the art and, when asked for and known, the characters.
+    precious: what must not be covered even when there is no free place: bubbles and heads.
+    """
     static = np.zeros(rgb.shape[:2], dtype=bool)
     for bubble in bubbles:
         h, w = bubble.filled.shape
         static[bubble.y0:bubble.y0 + h, bubble.x0:bubble.x0 + w] |= bubble.filled
-    # What must not be covered even when there is no free place: bubbles and heads.
     precious = static.copy()
-    automatic = effects or (free and (placement == "auto" or style.caption_bubble != "none"))
-    if automatic:
+    known = None
+    if with_people:
         people = person_mask(rgb)
-        info["characters"] = people is not None
+        known = people is not None
         if people is not None:
             static |= people
             precious |= _heads(people)
-    energy = _energy(rgb) if (effects or (free and style.caption_bubble != "none")) else None
-    caption_box = None
-    if free:
-        out, size, caption_box = _letter_free(out, rgb, "\n".join(free), placement, style, static,
-                                              palette(style, "caption", accent), energy, precious)
-        info["free_text"] = True
-        info["font_sizes"].append(size)
-    if effects:
-        taken = np.zeros(rgb.shape[:2], dtype=bool)  # the caption and the effects placed so far
-        if caption_box is not None:
-            x0, y0, x1, y1 = caption_box
-            taken[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = True
-        out = _letter_sfx(out, rgb, effects, static, taken, style, palette(style, "sfx", accent), energy,
-                          precious)
-        info["sfx"] = len(effects)
-    return out.convert("RGB"), info
+    return static, precious, known
 
 
-# ---------------------------------------------------------------- looks and colors
+def _reserve(taken, box):
+    """Mark a box (x0, y0, x1, y1), or nothing for None, in the mask of places already used."""
+    if box is not None:
+        x0, y0, x1, y1 = box
+        taken[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = True
+
+
+# ---------------------------------------------------------------- looks and colors# ---------------------------------------------------------------- looks and colors
 
 def _heads(people):
     """The top part of every character in a person mask: roughly the head and hair."""
@@ -232,7 +329,7 @@ def _assign(lines, count, fit):
     fit(index, text) returns a layout, or None if the text does not fit that bubble;
     the line then tries the next bubble. An empty line uses up one bubble; a line that
     fits no bubble uses up none.
-    Returns ([(bubble index, layout)], leftover lines).
+    Returns ([(bubble index, layout, line)], leftover lines).
     """
     taken = [False] * count
     plans = []
@@ -250,7 +347,7 @@ def _assign(lines, count, fit):
                 break
             result = fit(index, line)
             if result is not None:
-                plans.append((index, result))
+                plans.append((index, result, line))
                 placed = True
                 break
         if not placed and line:
@@ -437,13 +534,29 @@ def _anchor(placement, box_w, box_h, width, height):
     return cx, cy
 
 
-def _letter_free(image, rgb, text, placement, style, static, pal, energy, precious=None):
-    if style.caption_bubble != "none":
-        return _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy, precious)
-    height, width = rgb.shape[:2]
+def _caption_look(style, pal):
+    """The caption's style. Outlines make the lines taller: leave room for them."""
     look = voice(style, "caption")
-    # Outlines make the lines taller: leave room for them.
     look.line_spacing += 1.2 * (max(0.0, style.stroke_width) + (0.07 if pal and pal.get("outer") else 0.0))
+    return look
+
+
+def _draw_caption(image, item, style, pal, precious):
+    look = _caption_look(style, pal)
+    size = item["size"]
+    paint = _paint(style, "caption", pal, size, look.font)
+    layer = render_block(_lines(item), size, look, paint)
+    layer = decorate(layer, EXTRAS.get(style.caption_extras), size, paint, style.seed, precious,
+                     (item["cx"], item["cy"]))
+    return paste_centered(image, layer, item["cx"], item["cy"])
+
+
+def _place_free(rgb, text, placement, style, static, pal, energy, precious=None):
+    """The scene item for the free text: a caption, or a balloon drawn for it."""
+    if style.caption_bubble != "none":
+        return _place_balloon(rgb, text, placement, style, static, energy, precious)
+    height, width = rgb.shape[:2]
+    look = _caption_look(style, pal)
     paragraphs = parse_text(text, style.uppercase)
     full = max(8, int(style.free_size / 100.0 * height))
 
@@ -502,12 +615,10 @@ def _letter_free(image, rgb, text, placement, style, static, pal, energy, precio
     else:
         lines, size, block_w, block_h = fitted(full, 0.46 if "-" in placement else 0.88)
     cx, cy = _anchor(placement, block_w, block_h, width, height)
-    paint = _paint(style, "caption", pal, size, look.font)
-    layer = render_block(lines, size, look, paint)
-    layer = decorate(layer, EXTRAS.get(style.caption_extras), size, paint, style.seed, precious, (cx, cy))
-    box = (int(cx - block_w / 2.0 - size), int(cy - block_h / 2.0 - size * 0.5),
-           int(cx + block_w / 2.0 + size), int(cy + block_h / 2.0 + size * 0.5))
-    return paste_centered(image, layer, cx, cy), size, box
+    box = [int(cx - block_w / 2.0 - size), int(cy - block_h / 2.0 - size * 0.5),
+           int(cx + block_w / 2.0 + size), int(cy + block_h / 2.0 + size * 0.5)]
+    return {"kind": "caption", "text": text, "placement": placement, "lines": _plain(lines), "size": int(size),
+            "cx": float(cx), "cy": float(cy), "box": box}
 
 
 def _covered(static, precious, x, y, box_w, box_h):
@@ -545,6 +656,13 @@ def _drawn_bubble(paragraphs, look, style, size, width, height, tall=False):
         if (block_w <= width * 0.5 and block_h <= height * 0.3) or size <= 8:
             break
         size = max(8, min(size - 1, int(size * 0.92)))
+    fill_mask, outline, bx, by = _balloon_shape(lines, size, look, style)
+    return lines, size, fill_mask, outline, bx, by
+
+
+def _balloon_shape(lines, size, look, style):
+    """The bubble drawn around laid-out text, trimmed to what is drawn: (fill, outline, text x, text y)."""
+    block_w, block_h = block_size(lines, size, look)
     fill_mask, outline, (bx, by) = bubble_shape(style.caption_bubble, block_w, block_h, size,
                                                 style.caption_tail, style.seed)
     # The bubble is placed by what is drawn, tail and spikes included.
@@ -552,11 +670,11 @@ def _drawn_bubble(paragraphs, look, style, size, width, height, tall=False):
     if bounds:
         fill_mask, outline = fill_mask.crop(bounds), outline.crop(bounds)
         bx, by = bx - bounds[0], by - bounds[1]
-    return lines, size, fill_mask, outline, bx, by
+    return fill_mask, outline, bx, by
 
 
-def _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy, precious=None):
-    """The caption inside a bubble drawn for it."""
+def _place_balloon(rgb, text, placement, style, static, energy, precious=None):
+    """The scene item for a caption inside a bubble drawn for it."""
     height, width = rgb.shape[:2]
     look = voice(style, "caption")
     paragraphs = parse_text(text, style.uppercase)
@@ -596,6 +714,16 @@ def _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy
             if clear:
                 break
         (lines, size, fill_mask, outline, bx, by), x, y = tried[-1] if clear else tried[2]
+    x = max(0, min(x, width - fill_mask.width))
+    y = max(0, min(y, height - fill_mask.height))
+    return {"kind": "balloon", "text": text, "lines": _plain(lines), "size": int(size), "x": int(x), "y": int(y),
+            "box": [int(x), int(y), int(x + fill_mask.width), int(y + fill_mask.height)]}
+
+
+def _draw_balloon(image, item, style, pal, precious):
+    look = voice(style, "caption")
+    lines, size, x, y = _lines(item), item["size"], item["x"], item["y"]
+    fill_mask, outline, bx, by = _balloon_shape(lines, size, look, style)
     if style.caption_bubble_theme == "dark":
         body = (14, 14, 18)
         line = pal["fill"] if pal else _own_color(style, "caption", style.text_color, (255, 255, 255))
@@ -605,14 +733,11 @@ def _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy
         line = (15, 15, 15)
         ink = pal["ink"] if pal else _own_color(style, "caption", style.text_color, (0, 0, 0))
     bubble = Image.alpha_composite(_solid(line, outline), _solid(body, fill_mask))
-    x = max(0, min(x, width - bubble.width))
-    y = max(0, min(y, height - bubble.height))
     center = (x + bubble.width / 2.0, y + bubble.height / 2.0)
     marks = Paint(pal["fill"] if pal else (255, 255, 255), line if style.caption_bubble_theme != "dark" else body)
     shown = decorate(bubble, EXTRAS.get(style.caption_extras), size, marks, style.seed, precious, center)
     image = paste_centered(image, shown, center[0], center[1])
-    image = paste_centered(image, render_block(lines, size, look, Paint(ink)), x + bx, y + by)
-    return image, size, (x, y, x + bubble.width, y + bubble.height)
+    return paste_centered(image, render_block(lines, size, look, Paint(ink)), x + bx, y + by)
 
 
 # ---------------------------------------------------------------- sound effects
@@ -748,20 +873,25 @@ def _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height):
     return (layer.crop(bounds) if bounds else None), paint, size
 
 
-def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy, precious=None):
+def _repeat(effect):
+    """("FAP", 5) for "FAP x5"; (the effect, 1) otherwise."""
+    repeat = REPEAT.match(effect)
+    count = min(12, int(repeat.group(2))) if repeat else 1
+    return (repeat.group(1) if repeat and count > 1 else effect), count
+
+
+def _place_sfx(rgb, effects, static, taken, style, energy, precious=None):
+    """The scene items for the sound effects. `taken` gains the room of each one."""
     height, width = rgb.shape[:2]
-    base_look = voice(style, "sfx")
     static_table = _integral(static)
     heavy = _integral(precious) if precious is not None else None
+    items = []
     for index, effect in enumerate(effects):
         # Two random streams, both independent of the look: one for the size and tilt,
         # one for the place. Changing fonts, colors or moods then moves nothing.
         rng = random.Random(style.sfx_seed * 1000003 + index)
         size = max(10, int(style.sfx_size / 100.0 * height * rng.uniform(0.85, 1.15)))
-        seed = style.sfx_seed + index * 101
-        repeat = REPEAT.match(effect)
-        count = min(12, int(repeat.group(2))) if repeat else 1
-        word = repeat.group(1) if repeat and count > 1 else effect
+        word, count = _repeat(effect)
         # The place is chosen for a nominal box that depends on the text and size only.
         # Its width is estimated per character, not measured, so the font does not matter.
         units = sum(0.95 if ch in SYMBOLS else 0.3 if ch.isspace() else 0.5 for ch in word.replace("*", ""))
@@ -779,50 +909,63 @@ def _letter_sfx(image, rgb, effects, static, taken, style, pal, energy, precious
             if clear:
                 break
         size, nominal_w, nominal_h, x, y = tried[-1] if clear else tried[min(1, len(tried) - 1)]
-        nominal_size = size  # the look may shrink `size` below; the room must not follow
-        if count > 1:
-            # "FAP x5": the word several times in a ragged column.
-            rows = []
-            for row in range(count):
-                piece, paint, _ = _sfx_layer(word, max(10, int(size * rng.uniform(0.7, 1.15))),
-                                             base_look, style, pal, rng, seed + row, width, height)
-                if piece is not None:
-                    rows.append((piece, int(rng.uniform(-0.3, 0.3) * size)))
-            if not rows:
-                continue
-            reach = int(0.3 * size)
-            layer = Image.new("RGBA", (max(p.width for p, _ in rows) + 2 * reach,
-                                       int(sum(p.height * 0.72 for p, _ in rows) + rows[-1][0].height * 0.28) + 2),
-                              (0, 0, 0, 0))
-            top = 0.0
-            for piece, shift in rows:
-                layer.alpha_composite(piece, (max(0, (layer.width - piece.width) // 2 + shift), int(top)))
-                top += piece.height * 0.72
-            bounds = layer.getbbox()
-            if bounds is None:
-                continue
-            layer = layer.crop(bounds)
-        else:
-            layer, paint, size = _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height)
-            if layer is None:
-                continue
-        if layer.width > width * 0.9 or layer.height > height * 0.9:
-            layer.thumbnail((int(width * 0.9), int(height * 0.9)), Image.LANCZOS)
-        cx = min(max(x + nominal_w / 2.0, layer.width / 2.0), width - layer.width / 2.0)
-        cy = min(max(y + nominal_h / 2.0, layer.height / 2.0), height - layer.height / 2.0)
-        # An effect made of symbols alone gets no marks around it: hearts around hearts.
-        plain = [ch for ch in word if not ch.isspace() and ch != "*"]
-        kind = None if plain and all(ch in SYMBOLS for ch in plain) else EXTRAS.get(style.sfx_extras)
-        # Marks keep off the characters, the bubbles and the room of earlier effects.
-        layer = decorate(layer, kind, size, paint, seed, static | taken, (cx, cy))
-        image = paste_centered(image, layer, cx, cy)
         # Reserve room for this effect so the next one keeps off it. The room is worked
         # out from the text and the size alone, generous enough for a wide font and for
         # marks around: were it measured from what was drawn, a change of font or marks
         # would resize it and push the later effects somewhere else.
-        room_w = (units * 0.62 + 1.0) * nominal_size + 2.8 * nominal_size
-        room_h = nominal_size * (1.5 if count == 1 else 0.75 * count + 0.9) + 2.8 * nominal_size
+        room_w = (units * 0.62 + 1.0) * size + 2.8 * size
+        room_h = size * (1.5 if count == 1 else 0.75 * count + 0.9) + 2.8 * size
         center_x, center_y = x + nominal_w / 2.0, y + nominal_h / 2.0
-        taken[max(0, int(center_y - room_h / 2.0)):max(0, int(center_y + room_h / 2.0)),
-              max(0, int(center_x - room_w / 2.0)):max(0, int(center_x + room_w / 2.0))] = True
-    return image
+        room = [max(0, int(center_x - room_w / 2.0)), max(0, int(center_y - room_h / 2.0)),
+                max(0, int(center_x + room_w / 2.0)), max(0, int(center_y + room_h / 2.0))]
+        _reserve(taken, room)
+        items.append({"kind": "sfx", "text": effect, "index": index, "size": int(size), "x": int(x), "y": int(y),
+                      "nominal": [int(nominal_w), int(nominal_h)], "room": room})
+    return items
+
+
+def _draw_sfx(image, item, static, taken, style, pal, width, height):
+    """Draw one sound effect. `taken` is the room of what was drawn before it."""
+    base_look = voice(style, "sfx")
+    index, effect, size, x, y = item["index"], item["text"], item["size"], item["x"], item["y"]
+    nominal_w, nominal_h = item["nominal"]
+    rng = random.Random(style.sfx_seed * 1000003 + index)
+    rng.uniform(0.85, 1.15)  # the draw that sized the effect when it was placed: keep the stream in step
+    seed = style.sfx_seed + index * 101
+    word, count = _repeat(effect)
+    if count > 1:
+        # "FAP x5": the word several times in a ragged column.
+        rows = []
+        for row in range(count):
+            piece, paint, _ = _sfx_layer(word, max(10, int(size * rng.uniform(0.7, 1.15))),
+                                         base_look, style, pal, rng, seed + row, width, height)
+            if piece is not None:
+                rows.append((piece, int(rng.uniform(-0.3, 0.3) * size)))
+        if not rows:
+            return image
+        reach = int(0.3 * size)
+        layer = Image.new("RGBA", (max(p.width for p, _ in rows) + 2 * reach,
+                                   int(sum(p.height * 0.72 for p, _ in rows) + rows[-1][0].height * 0.28) + 2),
+                          (0, 0, 0, 0))
+        top = 0.0
+        for piece, shift in rows:
+            layer.alpha_composite(piece, (max(0, (layer.width - piece.width) // 2 + shift), int(top)))
+            top += piece.height * 0.72
+        bounds = layer.getbbox()
+        if bounds is None:
+            return image
+        layer = layer.crop(bounds)
+    else:
+        layer, paint, size = _sfx_layer(effect, size, base_look, style, pal, rng, seed, width, height)
+        if layer is None:
+            return image
+    if layer.width > width * 0.9 or layer.height > height * 0.9:
+        layer.thumbnail((int(width * 0.9), int(height * 0.9)), Image.LANCZOS)
+    cx = min(max(x + nominal_w / 2.0, layer.width / 2.0), width - layer.width / 2.0)
+    cy = min(max(y + nominal_h / 2.0, layer.height / 2.0), height - layer.height / 2.0)
+    # An effect made of symbols alone gets no marks around it: hearts around hearts.
+    plain = [ch for ch in word if not ch.isspace() and ch != "*"]
+    kind = None if plain and all(ch in SYMBOLS for ch in plain) else EXTRAS.get(style.sfx_extras)
+    # Marks keep off the characters, the bubbles and the room of earlier effects.
+    layer = decorate(layer, kind, size, paint, seed, static | taken, (cx, cy))
+    return paste_centered(image, layer, cx, cy)
