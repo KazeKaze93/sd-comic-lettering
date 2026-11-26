@@ -97,6 +97,14 @@ function ShapePath({ shape, color }: { shape: Shape; color: string }) {
   )
 }
 
+/** How an area's tint follows a drag before anything is redrawn: moved, and resized or turned about its middle. */
+function nudged(region: Region, nudge: { dx: number; dy: number; factor?: number; turn?: number }) {
+  const box = boxOf(region.shapes)
+  const cx = box ? (box[0] + box[2]) / 2 : 0
+  const cy = box ? (box[1] + box[3]) / 2 : 0
+  return `translate(${nudge.dx} ${nudge.dy}) rotate(${nudge.turn ?? 0} ${cx} ${cy}) translate(${cx} ${cy}) scale(${nudge.factor ?? 1}) translate(${-cx} ${-cy})`
+}
+
 /** The areas drawn by hand, tinted by what they are for; the one being drawn into stands out. */
 function Areas({ slot, drawing }: { slot: Slot; drawing: Shape | null }) {
   const picked = useStore((state) => state.region)
@@ -116,7 +124,7 @@ function Areas({ slot, drawing }: { slot: Slot; drawing: Shape | null }) {
     <svg viewBox={`0 0 ${slot.width} ${slot.height}`} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
       {slot.regions.filter(shown).map((region) => (
         // What the area covers is its shapes in the order they were drawn: paint, then rub out.
-        <g key={region.id} transform={nudge && nudge.id === region.id ? `translate(${nudge.dx} ${nudge.dy})` : undefined}>
+        <g key={region.id} transform={nudge && nudge.id === region.id ? nudged(region, nudge) : undefined}>
           <mask id={`area-${region.id}`} maskUnits="userSpaceOnUse" x={0} y={0} width={slot.width} height={slot.height}>
             {region.shapes.map((shape, index) => (
               <ShapePath key={index} shape={shape} color={shape.type === 'erase' ? 'black' : 'white'} />
@@ -517,18 +525,60 @@ function Handle({ item, slot, scale }: { item: SceneItem; slot: Slot; scale: num
 /** With the arrow: a click on an area picks it and brings up its text; a drag moves the area. */
 function AreaGrip({ region, slot, scale }: { region: Region; slot: Slot; scale: number }) {
   const start = useRef<{ x: number; y: number; moved: boolean } | null>(null)
+  const picked = useStore((state) => state.region === region.id)
   // What the drag showed, kept until the server has drawn the area where it now is.
-  const [ghost, setGhost] = useState<{ box: Box; dx: number; dy: number } | null>(null)
+  const [ghost, setGhost] = useState<{ box: Box; dx: number; dy: number; factor: number; turn: number } | null>(null)
+  const reshaping = useRef<{ kind: 'size' | 'turn'; x: number; y: number } | null>(null)
+  const grip = useRef<HTMLDivElement>(null)
   useEffect(() => setGhost(null), [slot.version])
   const box = boxOf(region.shapes)
   if (!box) return null
   const shown = ghost ? ghost.box : box
+
+  // The corner resizes the area about its middle and the knob turns it; the text goes along.
+  const middle = () => {
+    const rect = grip.current?.getBoundingClientRect()
+    return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : { x: 0, y: 0 }
+  }
+  const beginReshape = (kind: 'size' | 'turn') => (event: ReactPointerEvent) => {
+    if (event.button !== 0) return
+    event.stopPropagation()
+    event.preventDefault()
+    capture(event)
+    reshaping.current = { kind, x: event.clientX, y: event.clientY }
+  }
+  const reshape = (event: ReactPointerEvent) => {
+    const from = reshaping.current
+    if (!from) return
+    const center = middle()
+    let factor = 1
+    let turn = 0
+    if (from.kind === 'size') {
+      const before = Math.hypot(from.x - center.x, from.y - center.y)
+      factor = Math.min(6, Math.max(0.2, Math.hypot(event.clientX - center.x, event.clientY - center.y) / Math.max(before, 1)))
+    } else {
+      const before = Math.atan2(from.y - center.y, from.x - center.x)
+      turn = ((Math.atan2(event.clientY - center.y, event.clientX - center.x) - before) * 180) / Math.PI
+    }
+    setGhost({ box, dx: 0, dy: 0, factor, turn })
+    useStore.getState().setNudge({ id: region.id, dx: 0, dy: 0, factor, turn })
+  }
+  const endReshape = (event: ReactPointerEvent) => {
+    const from = reshaping.current
+    reshaping.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    if (!from || !ghost) return
+    useStore.getState().transformRegion(region.id, ghost.factor, Math.round(ghost.turn * 2) / 2)
+  }
+  // The handles stay while they are dragged: taking one away under the pointer would end the drag unfinished.
+  const handles = picked
   return (
     <>
-      {ghost && <Ghost slot={slot} scale={scale} box={ghost.box} dx={ghost.dx} dy={ghost.dy} />}
+      {ghost && <Ghost slot={slot} scale={scale} box={ghost.box} dx={ghost.dx} dy={ghost.dy} factor={ghost.factor} turn={-ghost.turn} />}
       <div
+        ref={grip}
         title="Click to edit this area, drag to move it"
-        className="absolute cursor-move touch-none"
+        className={`absolute cursor-move touch-none ${picked ? 'rounded-sm border border-cl-accent' : ''}`}
         onPointerEnter={() => useStore.getState().setHover(region.id)}
         onPointerLeave={() => useStore.getState().setHover(null)}
         style={{
@@ -550,7 +600,7 @@ function AreaGrip({ region, slot, scale }: { region: Region; slot: Slot; scale: 
           const dy = (event.clientY - from.y) / scale
           if (!from.moved && Math.hypot(dx, dy) * scale < 3) return
           from.moved = true
-          setGhost({ box, dx, dy })
+          setGhost({ box, dx, dy, factor: 1, turn: 0 })
           useStore.getState().setNudge({ id: region.id, dx, dy })
         }}
         onPointerUp={(event) => {
@@ -569,7 +619,35 @@ function AreaGrip({ region, slot, scale }: { region: Region; slot: Slot; scale: 
           setGhost(null)
           useStore.getState().setNudge(null)
         }}
-      />
+      >
+        {handles && (
+          <>
+            <div
+              title="Drag to resize"
+              onPointerDown={beginReshape('size')}
+              onPointerMove={reshape}
+              onPointerUp={endReshape}
+              onPointerCancel={endReshape}
+              className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize touch-none rounded-sm border border-black/60 bg-cl-accent"
+            />
+            <div className="pointer-events-none absolute -top-7 left-1/2 h-7 w-px -translate-x-1/2 bg-cl-accent" />
+            <div
+              title="Drag to turn"
+              aria-label="Drag to turn"
+              onPointerDown={beginReshape('turn')}
+              onPointerMove={reshape}
+              onPointerUp={endReshape}
+              onPointerCancel={endReshape}
+              className="absolute -top-[44px] left-1/2 z-10 flex h-5 w-5 -translate-x-1/2 cursor-grab touch-none items-center justify-center rounded-full border border-black/60 bg-cl-accent text-black"
+            >
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M13 8a5 5 0 1 1-1.6-3.7" />
+                <path d="M13.2 2.6v2.8h-2.8" />
+              </svg>
+            </div>
+          </>
+        )}
+      </div>
     </>
   )
 }
@@ -582,9 +660,10 @@ function AreaField({ region, slot, scale }: { region: Region; slot: Slot; scale:
   const wide = 232
   const tall = region.kind === 'keepout' ? 40 : 96
   const left = Math.max(0, Math.min(box[0] * scale, slot.width * scale - wide))
-  // Under the area; above it when there is no room under.
-  const under = box[3] * scale + 8
-  const top = under + tall <= slot.height * scale ? under : Math.max(0, box[1] * scale - tall - 8)
+  // Under the area, clear of its corner handle; above it when there is no room under, and
+  // then above the turn knob too, which stands on a stem over the area.
+  const under = box[3] * scale + 14
+  const top = under + tall <= slot.height * scale ? under : Math.max(0, box[1] * scale - tall - 60)
   const done = () => {
     void render()
     pickRegion(null)

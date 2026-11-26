@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api, type NewSession } from './api'
-import { boxOf, bubbleShapes } from './geometry'
+import { boxOf, bubbleShapes, turned } from './geometry'
 import type { BubbleTemplate, HostImage, LookOf, Options, Pin, Region, Settings, Shape, Slot, Source, Tool } from './types'
 
 const FONT_KEYS = ['font', 'caption_font', 'sfx_font']
@@ -30,7 +30,7 @@ interface State {
   /** The template the bubble tool puts down next, and how its bubble is painted. */
   stamp: { shape: BubbleTemplate['shape']; tail: BubbleTemplate['tail']; fill: 'light' | 'dark' }
   /** An area being dragged, and how far, in image pixels: its tint follows before anything is redrawn. */
-  nudge: { id: string; dx: number; dy: number } | null
+  nudge: { id: string; dx: number; dy: number; factor?: number; turn?: number } | null
   /** The area under the pointer, with the arrow: its tint shows while the pointer is on it. */
   hover: string | null
   busy: boolean
@@ -67,6 +67,8 @@ interface State {
   reshape: (id: string, change: Partial<Pick<BubbleTemplate, 'shape' | 'tail'>>) => void
   /** Move an area, with everything painted in it, and draw again. */
   moveRegion: (id: string, dx: number, dy: number) => void
+  /** Make an area larger or smaller about its middle, or turn it (degrees, clockwise); its text turns with it. */
+  transformRegion: (id: string, factor: number, turn: number) => void
   /** Add what was just drawn to the picked area, or start a new area with it. */
   addShape: (shape: Shape) => void
   /** Change an area; `render` false while its text is being typed. */
@@ -328,6 +330,41 @@ export const useStore = create<State>((set, get) => {
       get().changeRegion(id, {
         shapes: region.shapes.map((shape) => ({ ...shape, points: moved(shape.points) })),
         template: region.template && box ? { ...region.template, box: [box[0] + dx, box[1] + dy, box[2] + dx, box[3] + dy] } : undefined,
+      })
+    },
+
+    transformRegion: (id, factor, turn) => {
+      const slot = get().slots[get().source]
+      const region = slot?.regions.find((candidate) => candidate.id === id)
+      const box = region ? boxOf(region.shapes) : null
+      if (!region || !box) return
+      set({ nudge: null })
+      // The text tilts counter-clockwise for a positive number; the area turns clockwise.
+      let rotation = (region.rotation ?? 0) - turn
+      while (rotation > 180) rotation -= 360
+      while (rotation < -180) rotation += 360
+      const change: Partial<Region> = turn ? { rotation: Math.round(rotation * 2) / 2 } : {}
+      if (region.template) {
+        const [x0, y0, x1, y1] = region.template.box
+        const cx = (x0 + x1) / 2
+        const cy = (y0 + y1) / 2
+        const template = {
+          ...region.template,
+          box: [cx - ((x1 - x0) / 2) * factor, cy - ((y1 - y0) / 2) * factor, cx + ((x1 - x0) / 2) * factor, cy + ((y1 - y0) / 2) * factor] as [number, number, number, number],
+          angle: (region.template.angle ?? 0) + turn,
+        }
+        get().changeRegion(id, { ...change, template, shapes: bubbleShapes(template) })
+        return
+      }
+      const cx = (box[0] + box[2]) / 2
+      const cy = (box[1] + box[3]) / 2
+      get().changeRegion(id, {
+        ...change,
+        shapes: region.shapes.map((shape) =>
+          shape.type === 'polygon'
+            ? { ...shape, points: turned(shape.points, cx, cy, turn, factor) }
+            : { ...shape, points: turned(shape.points, cx, cy, turn, factor), width: Math.max(2, shape.width * factor) },
+        ),
       })
     },
 

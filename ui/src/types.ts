@@ -76,8 +76,10 @@ export type BubbleTail = 'none' | 'down-left' | 'down' | 'down-right' | 'left' |
 export interface BubbleTemplate {
   shape: BubbleShape
   tail: BubbleTail
-  /** Where it stands, in image pixels: x0, y0, x1, y1. */
+  /** Where it stands, in image pixels: x0, y0, x1, y1 (before it is turned). */
   box: [number, number, number, number]
+  /** How far it is turned about its middle, in degrees, clockwise. */
+  angle?: number
 }
 
 /** What was set by hand for one item; the server decides whatever is left out. */

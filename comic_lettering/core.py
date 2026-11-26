@@ -336,15 +336,25 @@ def _place_region(height, area, mask, number, style, pal):
     look = _region_look(style, filled, pal)
     room = mask
     scale = area.get("scale") or 1.0
-    if scale != 1.0:
-        # Larger or smaller than the area gives: fit into the area blown up, or shrunk,
-        # about its middle. The text keeps its middle and its line breaks stay sensible.
-        cy, cx = ndi.center_of_mass(mask)
-        room = ndi.affine_transform(mask.astype(np.uint8), [1.0 / scale, 1.0 / scale],
-                                    offset=[cy - cy / scale, cx - cx / scale], order=0) > 0
+    turn = math.radians(area.get("rotation") or 0.0)
+    my, mx = ndi.center_of_mass(mask)
+    if scale != 1.0 or turn:
+        # The text is fitted in a frame of its own. Larger or smaller than the area gives:
+        # the area is blown up, or shrunk, about its middle. Tilted: the area is turned back
+        # by the tilt, so the lines are laid out level and fill the area once they are
+        # turned with it. Each point of the frame reads the area at the point it came from.
+        cos, sin = math.cos(turn) / scale, math.sin(turn) / scale
+        matrix = np.array([[cos, -sin], [sin, cos]])  # rows and columns: y, x
+        middle = np.array([my, mx])
+        room = ndi.affine_transform(mask.astype(np.uint8), matrix, offset=middle - matrix.dot(middle), order=0) > 0
         if not room.any():
             room = mask
     lines, size, cx, cy = _fit_text(height, _Area(room), parse_text(area["text"], style.uppercase), look, False)
+    if turn and room is not mask:
+        # Back from the level frame to where the text stands on the image.
+        dx, dy = cx - mx, cy - my
+        cx = mx + dx * math.cos(turn) + dy * math.sin(turn)
+        cy = my - dx * math.sin(turn) + dy * math.cos(turn)
     item = {"kind": "region", "id": "region:%s" % area["id"], "region": number, "text": area["text"],
             "lines": _plain(lines), "size": int(size), "cx": float(cx), "cy": float(cy), "fill": area["fill"]}
     if area.get("rotation") is not None:

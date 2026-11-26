@@ -92,7 +92,18 @@ export function bubbleShapes(template: BubbleTemplate): Shape[] {
       shapes.push({ type: 'polygon', points: [at(0.8, -0.24), at(1.5, 0.08), at(0.8, 0.24)] })
     }
   }
-  return shapes
+  const angle = template.angle ?? 0
+  return angle ? shapes.map((shape) => ({ ...shape, points: turned(shape.points, cx, cy, angle, 1) })) : shapes
+}
+
+/** Points turned clockwise by an angle in degrees about a middle, and moved away from it by a factor. */
+export function turned(points: [number, number][], cx: number, cy: number, angle: number, factor: number): [number, number][] {
+  const cos = Math.cos((angle * Math.PI) / 180) * factor
+  const sin = Math.sin((angle * Math.PI) / 180) * factor
+  return points.map(([x, y]) => [
+    Math.round((cx + (x - cx) * cos - (y - cy) * sin) * 10) / 10,
+    Math.round((cy + (x - cx) * sin + (y - cy) * cos) * 10) / 10,
+  ])
 }
 
 export const BUBBLE_SHAPES: BubbleShape[] = ['oval', 'box', 'cloud', 'burst', 'thought']
