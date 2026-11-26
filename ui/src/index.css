@@ -12,6 +12,7 @@
   --cl-muted: 148 155 168;
   --cl-accent: 76 155 232;
   --cl-accent-text: 150 200 250;
+  --cl-on-accent: 12 22 36;
   --cl-warning: 224 160 48;
   --cl-danger: 240 110 110;
   color-scheme: dark;
@@ -26,6 +27,7 @@
   --cl-muted: 100 108 122;
   --cl-accent: 36 112 196;
   --cl-accent-text: 24 86 160;
+  --cl-on-accent: 255 255 255;
   --cl-warning: 176 112 16;
   --cl-danger: 196 48 48;
   color-scheme: light;

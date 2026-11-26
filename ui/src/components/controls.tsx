@@ -4,6 +4,17 @@ export function Label({ children }: { children: ReactNode }) {
   return <span className="text-xs text-cl-muted">{children}</span>
 }
 
+/** An icon drawn with lines on a 16 by 16 grid, in the color of the text around it. */
+export function Icon({ children, size = 16 }: { children: ReactNode; size?: number }) {
+  return (
+    <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  )
+}
+
+type ButtonVariant = 'plain' | 'quiet' | 'primary'
+
 export function Button({
   children,
   onClick,
@@ -11,13 +22,16 @@ export function Button({
   title,
   disabled,
   variant = 'plain',
+  onHold,
 }: {
   children: ReactNode
   onClick?: () => void
   active?: boolean
   title?: string
   disabled?: boolean
-  variant?: 'plain' | 'quiet'
+  variant?: ButtonVariant
+  /** For a button that acts while it is held down: told true on press and false on release. */
+  onHold?: (held: boolean) => void
 }) {
   return (
     <button
@@ -25,6 +39,10 @@ export function Button({
       title={title}
       disabled={disabled}
       onClick={onClick}
+      onPointerDown={onHold && (() => onHold(true))}
+      onPointerUp={onHold && (() => onHold(false))}
+      onPointerLeave={onHold && (() => onHold(false))}
+      onPointerCancel={onHold && (() => onHold(false))}
       className={`inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs disabled:opacity-40 ${buttonLook(variant, active)}`}
     >
       {children}
@@ -32,9 +50,11 @@ export function Button({
   )
 }
 
-/** How a button is painted: with a frame, or quiet until pointed at; an active one stands out. */
-function buttonLook(variant: 'plain' | 'quiet', active?: boolean) {
-  if (variant === 'quiet' && !active) return 'text-cl-muted hover:text-cl-text'
+/** How a button is painted: with a frame, quiet until pointed at, or as the one to press; an active one stands out. */
+function buttonLook(variant: ButtonVariant, active?: boolean) {
+  if (variant === 'primary') return 'border border-cl-accent bg-cl-accent font-semibold text-cl-on-accent hover:bg-cl-accent/85'
+  // A quiet button keeps an unseen frame, so that turning active does not move its neighbours.
+  if (variant === 'quiet' && !active) return 'border border-transparent text-cl-muted hover:text-cl-text'
   return `border border-cl-border ${active ? 'bg-cl-accent/20 text-cl-accent-text' : 'bg-cl-raised hover:border-cl-muted'}`
 }
 
@@ -99,14 +119,17 @@ export function Toggle({
   checked,
   onChange,
   label,
+  id,
 }: {
   checked: boolean
   onChange: (value: boolean) => void
   label: string
+  id?: string
 }) {
   return (
     <label className="flex cursor-pointer items-center gap-2 text-xs text-cl-text">
       <input
+        id={id}
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
@@ -124,8 +147,11 @@ export function Select({
   options,
   onChange,
   fontOf,
+  ariaLabel,
 }: {
-  label: string
+  /** Shown above the list. Without it nothing is shown, and `ariaLabel` names the list instead. */
+  label?: string
+  ariaLabel?: string
   value: string
   options: string[]
   onChange: (value: string) => void
@@ -155,13 +181,14 @@ export function Select({
 
   return (
     <div ref={root} className="relative min-w-0">
-      <Label>{label}</Label>
+      {label !== undefined && <Label>{label}</Label>}
       <button
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={label === undefined ? ariaLabel : undefined}
         onClick={() => setOpen(!open)}
-        className="mt-0.5 flex h-7 w-full items-center justify-between gap-1 rounded border border-cl-border bg-cl-raised px-2 text-left text-xs hover:border-cl-muted"
+        className={`${label === undefined ? '' : 'mt-0.5 '}flex h-7 w-full items-center justify-between gap-1 rounded border border-cl-border bg-cl-raised px-2 text-left text-xs hover:border-cl-muted`}
       >
         <span className="truncate" style={{ fontFamily: fontOf?.(value) }}>
           {value}

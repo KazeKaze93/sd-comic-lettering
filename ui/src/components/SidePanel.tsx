@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import { BUBBLE_SHAPES, BUBBLE_TAILS } from '../geometry'
-import type { BubbleShape, BubbleTail, LookOf, Region, RegionKind, Tool } from '../types'
+import type { BubbleShape, BubbleTail, LookOf, Region, RegionKind } from '../types'
 import { Button, Label, Segmented, Select, Slider, TextInput, Toggle } from './controls'
 
 type FieldName = 'text' | 'caption' | 'sfx'
@@ -52,43 +52,6 @@ const CUSTOM_MOOD: SliderSpec[] = [
 /** How many mark buttons show before "All marks" is pressed. */
 const FEW_MARKS = 8
 
-/** The tools as a paint program shows them: an icon each. Paths are drawn on a 16 by 16 grid. */
-const TOOLS: { value: Tool; label: string; icon: ReactNode }[] = [
-  { value: 'off', label: 'Arrow: drag areas, captions and effects; click an area to edit its text', icon: <path d="M4 2l8 6-3.4.8L10.8 13l-1.7.8-2.3-4.2L4 12z" /> },
-  {
-    value: 'bubble',
-    label: 'Bubble: put a ready-made bubble on the image',
-    icon: <path d="M8 2.2c3.4 0 6 2.1 6 4.7s-2.6 4.700-6 4.700c-.6 0-1.200-.1-1.800-.2L3.300 13.800l.8-2.900C2.800 10 2 8.500 2 6.900c0-2.600 2.600-4.700 6-4.700z" />,
-  },
-  {
-    value: 'brush',
-    label: 'Brush: paint an area',
-    icon: (
-      <>
-        <path d="M10.5 2.5l3 3-5.6 5.6-3-3z" />
-        <path d="M4.6 9.2c-1.6.5-2.2 2-2.2 4.2 2.2 0 3.8-.5 4.3-2.1" />
-      </>
-    ),
-  },
-  {
-    value: 'eraser',
-    label: 'Eraser: rub out what was painted',
-    icon: (
-      <>
-        <path d="M2.8 10.2l6.4-6.4 4 4-6.4 6.4H4.6z" />
-        <path d="M6.4 6.6l4 4M2.5 14.2h11" />
-      </>
-    ),
-  },
-]
-
-function Icon({ children }: { children: ReactNode }) {
-  return (
-    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {children}
-    </svg>
-  )
-}
 const KINDS: { value: RegionKind; label: string }[] = [
   { value: 'text', label: 'Text' },
   { value: 'sfx', label: 'Effect' },
@@ -107,41 +70,11 @@ function AreasPanel() {
   const picked = useStore((state) => state.region)
   const regions = useStore((state) => state.slots[state.source]?.regions)
   const stamp = useStore((state) => state.stamp)
-  const { setTool, setBrush, pickRegion, changeRegion, removeRegion, undoShape, render, setStamp, reshape } = useStore.getState()
+  const { setBrush, pickRegion, changeRegion, removeRegion, undoShape, render, setStamp, reshape } = useStore.getState()
   const shapes = BUBBLE_SHAPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }))
   if (!regions) return null
   return (
     <Section title="Areas drawn by hand">
-      <div className="flex items-center gap-1" role="toolbar" aria-label="Drawing tools">
-        {TOOLS.map((entry) => (
-          <button
-            key={entry.value}
-            type="button"
-            title={entry.label}
-            aria-label={entry.label}
-            aria-pressed={tool === entry.value}
-            onClick={() => setTool(entry.value)}
-            className={`flex h-8 w-8 items-center justify-center rounded border ${
-              tool === entry.value
-                ? 'border-cl-accent bg-cl-accent/20 text-cl-accent-text'
-                : 'border-cl-border bg-cl-raised text-cl-muted hover:border-cl-muted hover:text-cl-text'
-            }`}
-          >
-            <Icon>{entry.icon}</Icon>
-          </button>
-        ))}
-        <span className="flex-1" />
-        <Button
-          disabled={!picked}
-          onClick={() => pickRegion(null)}
-          title="The next thing you draw starts a new area, even on top of this one"
-        >
-          <Icon>
-            <path d="M8 3v10M3 8h10" />
-          </Icon>
-          New area
-        </Button>
-      </div>
       {tool === 'bubble' && (
         <>
           <Segmented<BubbleShape> value={stamp.shape} options={shapes} onChange={(shape) => setStamp({ shape })} />
@@ -539,7 +472,7 @@ export function SidePanel() {
 
       {embedded && !comfy && (
         <div className="border-t border-cl-border pt-3">
-          <Toggle checked={auto} onChange={setAuto} label="Letter every new image while it is generated" />
+          <Toggle id="cl-auto-toggle" checked={auto} onChange={setAuto} label="Letter every new image while it is generated" />
           <p className="mt-1 text-[11px] leading-snug text-cl-muted">
             Uses the three texts above and this look for each image a generation makes.
           </p>

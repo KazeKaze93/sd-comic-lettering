@@ -14,6 +14,7 @@ export default {
         'cl-muted': color('muted'),
         'cl-accent': color('accent'),
         'cl-accent-text': color('accent-text'),
+        'cl-on-accent': color('on-accent'),
         'cl-warning': color('warning'),
         'cl-danger': color('danger'),
       },
