@@ -29,9 +29,9 @@ Restart the host afterwards.
 
 ### A1111 / Forge / reForge
 
-There are two ways in, in txt2img and in img2img alike: the speech-bubble icon in the row of tools under `Generate` (beside Style Grid's icon when that extension is installed), and the `Comic Lettering` button under the result gallery. Either opens the editor over the page; `Close` or Esc brings the page back.
+The way in, in txt2img and in img2img alike, is the speech-bubble icon in the row of tools under `Generate` (beside Style Grid's icon when that extension is installed). It opens the editor over the page; `Close` or Esc brings the page back.
 
-1. Generate an image and press `Comic Lettering`. The editor takes the image the gallery shows, as it was generated.
+1. Generate an image and press the speech-bubble icon under `Generate`. The editor takes the image the gallery shows, as it was generated.
 2. Type the text. Everything applies by itself: a list or a checkbox when it changes, a slider when it is released, a text field when you leave it (or on Ctrl+Enter).
 3. `To gallery` shows the result in the gallery of the tab you came from; `Save` saves the way the host saves its own images of that tab: same folder, file name pattern, numbering, format and subfolders, with `-lettered` at the end of the name and the generation parameters kept.
 

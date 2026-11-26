@@ -1,6 +1,13 @@
 /* The Comic Lettering icon in the row of tools under Generate. The page script gives the
    button the classes and the measured look of a tool button the host made itself, so only
    the drawing inside is sized here. */
+/* The row that holds the hidden "to gallery" button takes no room on the page. */
+.sdcl-hidden,
+#comic_lettering_bar_txt2img,
+#comic_lettering_bar_img2img {
+    display: none !important;
+}
+
 .sdcl-tool-btn svg {
     width: 18px;
     height: 18px;
