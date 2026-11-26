@@ -3,49 +3,57 @@ import { api } from '../api'
 import { useStore } from '../store'
 import { BUBBLE_SHAPES, BUBBLE_TAILS } from '../geometry'
 import type { BubbleShape, BubbleTail, Region, RegionKind, SectionId } from '../types'
-import { Button, Section, Segmented, Select, Slider, TextInput, Toggle } from './controls'
+import { Button, ColorField, Icon, Section, Segmented, Select, Slider, Toggle } from './controls'
 
 type FieldName = 'text' | 'caption' | 'sfx'
 
 interface SliderSpec {
   key: string
   label: string
+  hint: string
   min: number
   max: number
   step: number
 }
 
+// A label is short enough for one line; the hint says the same in full, on hover.
 const ALL_TEXT: SliderSpec[] = [
-  { key: 'soften', label: 'Soften the edges, px', min: 0, max: 3, step: 0.1 },
-  { key: 'grain', label: 'Uneven ink', min: 0, max: 1, step: 0.05 },
-  { key: 'arc', label: 'Bend into an arc', min: -1, max: 1, step: 0.05 },
-  { key: 'rotation', label: 'Tilt, degrees', min: -45, max: 45, step: 0.5 },
-  { key: 'opacity', label: 'Opacity', min: 0.1, max: 1, step: 0.05 },
-  { key: 'seed', label: 'Pattern number (wobble, marks around, drawn bubble)', min: 0, max: 999, step: 1 },
+  { key: 'soften', label: 'Soften edges, px', hint: 'Blur the letter edges, in pixels', min: 0, max: 3, step: 0.1 },
+  { key: 'grain', label: 'Uneven ink', hint: 'Ink that is thinner in places, like a worn stamp', min: 0, max: 1, step: 0.05 },
+  { key: 'arc', label: 'Bend into an arc', hint: 'Curve the lines up or down', min: -1, max: 1, step: 0.05 },
+  { key: 'rotation', label: 'Tilt, °', hint: 'Tilt all text, degrees', min: -45, max: 45, step: 0.5 },
+  { key: 'opacity', label: 'Opacity', hint: 'How solid all text is', min: 0.1, max: 1, step: 0.05 },
 ]
 const BUBBLES: SliderSpec[] = [
-  { key: 'bubble_size', label: 'Largest font, % of image height', min: 1, max: 30, step: 0.5 },
-  { key: 'bubble_min_size', label: 'Smallest readable font, %', min: 0.5, max: 10, step: 0.1 },
-  { key: 'margin', label: 'Gap to the bubble edge', min: 0, max: 0.3, step: 0.01 },
-  { key: 'white_threshold', label: 'Darkest fill still seen as a bubble', min: 40, max: 255, step: 1 },
+  { key: 'bubble_size', label: 'Largest font, %', hint: 'Largest font in a bubble, % of image height', min: 1, max: 30, step: 0.5 },
+  {
+    key: 'bubble_min_size',
+    label: 'Smallest font, %',
+    hint: 'Smallest font still readable, % of image height; longer text goes elsewhere',
+    min: 0.5,
+    max: 10,
+    step: 0.1,
+  },
+  { key: 'margin', label: 'Gap to the edge', hint: "Space between the text and the bubble's edge", min: 0, max: 0.3, step: 0.01 },
+  { key: 'white_threshold', label: 'Darkest bubble fill', hint: 'The darkest fill still taken for a bubble (0-255)', min: 40, max: 255, step: 1 },
 ]
 const CAPTION: SliderSpec[] = [
-  { key: 'free_size', label: 'Font size, % of image height', min: 1, max: 30, step: 0.5 },
-  { key: 'stroke_width', label: 'Outline width', min: 0, max: 0.5, step: 0.01 },
-  { key: 'shadow', label: 'Shadow', min: 0, max: 1, step: 0.05 },
+  { key: 'free_size', label: 'Font size, %', hint: 'Caption font size, % of image height', min: 1, max: 30, step: 0.5 },
+  { key: 'stroke_width', label: 'Outline width', hint: 'Caption outline width', min: 0, max: 0.5, step: 0.01 },
+  { key: 'shadow', label: 'Shadow', hint: 'Caption shadow strength', min: 0, max: 1, step: 0.05 },
 ]
 const EFFECTS: SliderSpec[] = [
-  { key: 'sfx_size', label: 'Font size, % of image height', min: 1, max: 30, step: 0.5 },
-  { key: 'sfx_tilt', label: 'Largest tilt, degrees', min: 0, max: 45, step: 1 },
-  { key: 'sfx_opacity', label: 'Opacity', min: 0.1, max: 1, step: 0.05 },
+  { key: 'sfx_size', label: 'Font size, %', hint: 'Effect font size, % of image height', min: 1, max: 30, step: 0.5 },
+  { key: 'sfx_tilt', label: 'Largest tilt, °', hint: 'Effects tilt at random up to this many degrees', min: 0, max: 45, step: 1 },
+  { key: 'sfx_opacity', label: 'Opacity', hint: 'How solid the effects are', min: 0.1, max: 1, step: 0.05 },
 ]
 const CUSTOM_MOOD: SliderSpec[] = [
-  { key: 'jitter', label: 'Letters wobble', min: 0, max: 1, step: 0.05 },
-  { key: 'size_jitter', label: 'Letters differ in size', min: 0, max: 1, step: 0.05 },
-  { key: 'rough', label: 'Ragged edges', min: 0, max: 1, step: 0.05 },
-  { key: 'line_tilt', label: 'Lines tilt, degrees', min: 0, max: 15, step: 0.5 },
-  { key: 'line_shift', label: 'Lines shift sideways', min: 0, max: 1, step: 0.05 },
-  { key: 'line_spacing', label: 'Line spacing', min: 0.7, max: 1.6, step: 0.02 },
+  { key: 'jitter', label: 'Letters wobble', hint: 'Letters move off the line', min: 0, max: 1, step: 0.05 },
+  { key: 'size_jitter', label: 'Letter sizes vary', hint: 'Letters differ in size', min: 0, max: 1, step: 0.05 },
+  { key: 'rough', label: 'Ragged edges', hint: 'Letter edges are torn', min: 0, max: 1, step: 0.05 },
+  { key: 'line_tilt', label: 'Lines tilt, °', hint: 'Each line tilts a little, degrees', min: 0, max: 15, step: 0.5 },
+  { key: 'line_shift', label: 'Lines shift', hint: 'Lines move sideways', min: 0, max: 1, step: 0.05 },
+  { key: 'line_spacing', label: 'Line spacing', hint: 'Space between lines', min: 0.7, max: 1.6, step: 0.02 },
 ]
 
 /** The part of the panel each text field is in. */
@@ -88,7 +96,8 @@ function AreasPanel() {
       )}
       {(tool === 'brush' || tool === 'eraser') && (
         <Slider
-          label={tool === 'eraser' ? 'Eraser width, % of the image' : 'Brush width, % of the image'}
+          label={tool === 'eraser' ? 'Eraser width, %' : 'Brush width, %'}
+          hint="Width, % of the image's shorter side"
           value={Math.round(brush * 100)}
           min={1}
           max={30}
@@ -164,7 +173,8 @@ function AreasPanel() {
           {region.kind !== 'keepout' && (
             <>
               <Slider
-                label="Size, % of what the area gives"
+                label="Size, %"
+                hint="Text size, % of what the area gives"
                 value={Math.round((region.scale ?? 1) * 100)}
                 min={30}
                 max={300}
@@ -174,7 +184,8 @@ function AreasPanel() {
               />
               {region.follow !== true && (
                 <Slider
-                  label={region.rotation === undefined && region.kind === 'sfx' ? 'Tilt, degrees (random now)' : 'Tilt, degrees'}
+                  label={region.rotation === undefined && region.kind === 'sfx' ? 'Tilt, ° (random now)' : 'Tilt, °'}
+                  hint="Tilt of the text, degrees"
                   value={region.rotation ?? 0}
                   min={-90}
                   max={90}
@@ -216,6 +227,7 @@ function Sliders({ specs }: { specs: SliderSpec[] }) {
         <Slider
           key={spec.key}
           label={spec.label}
+          hint={spec.hint}
           value={Number(settings[spec.key] ?? 0)}
           min={spec.min}
           max={spec.max}
@@ -237,9 +249,14 @@ function Check({ name, label }: { name: string; label: string }) {
 function Color({ name, label }: { name: string; label: string }) {
   const value = useStore((state) => String(state.settings[name] ?? 'auto'))
   const setSetting = useStore((state) => state.setSetting)
-  const render = useStore((state) => state.render)
   return (
-    <TextInput label={label} value={value} onChange={(next) => setSetting(name, next, false)} onCommit={() => void render()} />
+    <ColorField
+      label={label}
+      hint={`${label}: left to the script, or a color of your own`}
+      value={value}
+      onDraft={(next) => setSetting(name, next, false)}
+      onCommit={(next) => setSetting(name, next, true)}
+    />
   )
 }
 
@@ -505,6 +522,21 @@ export function SidePanel() {
       >
         <Check name="uppercase" label="Capital letters" />
         <Sliders specs={ALL_TEXT} />
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_48px] items-center gap-2">
+          <span className="truncate text-xs text-cl-text" title="One number picks the wobble pattern, the marks around and the drawn caption bubble">
+            Pattern
+          </span>
+          <Button onClick={() => setSetting('seed', (Number(settings.seed) || 0) + 1)}>
+            <Icon>
+              <rect x="2.5" y="2.5" width="11" height="11" rx="2" />
+              <circle cx="5.5" cy="5.5" r="0.6" />
+              <circle cx="8" cy="8" r="0.6" />
+              <circle cx="10.5" cy="10.5" r="0.6" />
+            </Icon>
+            Try another
+          </Button>
+          <span className="text-right text-[11px] text-cl-muted">#{Number(settings.seed) || 0}</span>
+        </div>
         <div className="flex items-center justify-between gap-2">
           <Button onClick={() => resetLook(keepFonts)}>Reset the look</Button>
           <Toggle checked={keepFonts} onChange={setKeepFonts} label="Keep the fonts" />

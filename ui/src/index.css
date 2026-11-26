@@ -45,3 +45,23 @@ body,
 body {
   font-family: system-ui, 'Segoe UI', sans-serif;
 }
+
+/* The swatch of a color field: the browser's own color input, with nothing of its own frame left. */
+.cl-swatch::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.cl-swatch::-webkit-color-swatch {
+  border: 0;
+  border-radius: 3px;
+}
+.cl-swatch::-moz-color-swatch {
+  border: 0;
+  border-radius: 3px;
+}
+
+/* Over the swatch while the color is left to the script: a checker, as where no color is set. */
+.cl-checker {
+  background-color: rgb(var(--cl-surface));
+  background-image: repeating-conic-gradient(rgb(var(--cl-border)) 0% 25%, transparent 0% 50%);
+  background-size: 8px 8px;
+}

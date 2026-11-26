@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
 export function Label({ children }: { children: ReactNode }) {
   return <span className="text-xs text-cl-muted">{children}</span>
@@ -137,13 +137,16 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  compact,
 }: {
   value: T
   options: { value: T; label: string }[]
   onChange: (value: T) => void
+  /** Low enough to stand in a one-line row. */
+  compact?: boolean
 }) {
   return (
-    <div className="flex overflow-hidden rounded border border-cl-border text-xs" role="tablist">
+    <div className={`flex overflow-hidden rounded border border-cl-border ${compact ? 'h-[22px] text-[11px]' : 'text-xs'}`} role="tablist">
       {options.map((option) => (
         <button
           key={option.value}
@@ -151,7 +154,7 @@ export function Segmented<T extends string>({
           role="tab"
           aria-selected={option.value === value}
           onClick={() => onChange(option.value)}
-          className={`flex-1 px-2 py-1 ${
+          className={`flex-1 ${compact ? 'px-1.5' : 'px-2 py-1'} ${
             option.value === value ? 'bg-cl-accent/20 text-cl-accent-text' : 'text-cl-muted hover:text-cl-text'
           }`}
         >
@@ -272,9 +275,11 @@ export function Select({
   )
 }
 
-/** A slider with its number. The value is reported while dragging; `onCommit` fires when it is let go. */
+/** A slider with its number, in one line. The value is reported while dragging; `onCommit` fires when it is let go.
+ * The label is short and may be cut off: `hint` says it in full, on hover and to a screen reader. */
 export function Slider({
   label,
+  hint,
   value,
   min,
   max,
@@ -283,6 +288,7 @@ export function Slider({
   onCommit,
 }: {
   label: string
+  hint?: string
   value: number
   min: number
   max: number
@@ -290,40 +296,124 @@ export function Slider({
   onChange: (value: number) => void
   onCommit: () => void
 }) {
+  const rangeId = useId()
+  const hintId = useId()
   const clamp = (raw: number) => Math.min(max, Math.max(min, raw))
   return (
-    <label className="block min-w-0">
-      <span className="flex items-baseline justify-between gap-2">
-        <Label>{label}</Label>
-        <input
-          type="number"
-          value={value}
-          min={min}
-          max={max}
-          step={step}
-          onChange={(event) => {
-            const parsed = Number(event.target.value)
-            if (!Number.isNaN(parsed)) onChange(clamp(parsed))
-          }}
-          onBlur={onCommit}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') onCommit()
-          }}
-          className="h-5 w-14 rounded border border-cl-border bg-cl-raised px-1 text-right text-xs"
-        />
-      </span>
+    <div className="grid h-[22px] min-w-0 grid-cols-[minmax(0,1fr)_96px_48px] items-center gap-2">
+      <label htmlFor={rangeId} className="truncate text-xs text-cl-text" title={hint ?? label}>
+        {label}
+        {hint && (
+          <span id={hintId} className="sr-only">
+            {hint}
+          </span>
+        )}
+      </label>
       <input
+        id={rangeId}
         type="range"
         value={value}
         min={min}
         max={max}
         step={step}
+        aria-label={label}
+        aria-describedby={hint ? hintId : undefined}
         onChange={(event) => onChange(Number(event.target.value))}
         onPointerUp={onCommit}
         onKeyUp={onCommit}
-        className="mt-1 w-full accent-[rgb(var(--cl-accent))]"
+        className="h-[14px] w-full accent-[rgb(var(--cl-accent))]"
       />
-    </label>
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        aria-label={`${label}, as a number`}
+        onChange={(event) => {
+          const parsed = Number(event.target.value)
+          if (!Number.isNaN(parsed)) onChange(clamp(parsed))
+        }}
+        onBlur={onCommit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') onCommit()
+        }}
+        className="h-5 w-12 rounded border border-cl-border bg-cl-raised px-1 text-right text-xs"
+      />
+    </div>
+  )
+}
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i
+
+/** A color that is either left to the script ("auto") or picked: a swatch that opens the system's
+ * picker, the switch between the two, and the picked color written out. */
+export function ColorField({
+  label,
+  hint,
+  value,
+  onDraft,
+  onCommit,
+}: {
+  label: string
+  hint?: string
+  /** 'auto' or '#rrggbb'. */
+  value: string
+  /** The color under the pointer while the picker is open: to show, not to draw with yet. */
+  onDraft: (value: string) => void
+  /** The color the picker was closed on, or 'auto'. */
+  onCommit: (value: string) => void
+}) {
+  const input = useRef<HTMLInputElement>(null)
+  const picked = HEX_COLOR.test(value)
+  // What the picker opens on while the color is left to the script: the color picked last.
+  const last = useRef('#ffffff')
+  if (picked) last.current = value.toLowerCase()
+  const commit = useRef(onCommit)
+  commit.current = onCommit
+  useEffect(() => {
+    const element = input.current
+    if (!element) return
+    // React's onChange hears every move inside the picker. The browser's own "change" comes
+    // once, when the picker is closed: that is the moment to draw.
+    const done = () => commit.current(element.value)
+    element.addEventListener('change', done)
+    return () => element.removeEventListener('change', done)
+  }, [])
+  return (
+    <div className="grid min-h-[22px] min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+      <span className="truncate text-xs text-cl-text" title={hint ?? label}>
+        {label}
+      </span>
+      <span className="flex items-center gap-1.5">
+        {picked && <span className="text-[11px] text-cl-muted">{value.toLowerCase()}</span>}
+        <span className="relative h-[22px] w-[22px] shrink-0">
+          <input
+            ref={input}
+            type="color"
+            value={picked ? value.toLowerCase() : last.current}
+            aria-label={`${label}: pick a color`}
+            onChange={(event) => onDraft(event.target.value)}
+            className="cl-swatch h-[22px] w-[22px] cursor-pointer rounded border border-cl-border bg-transparent p-0"
+          />
+          {!picked && <span className="cl-checker pointer-events-none absolute inset-px rounded-sm" aria-hidden="true" />}
+        </span>
+        <span className="w-[88px]">
+          <Segmented
+            compact
+            value={picked ? 'pick' : 'auto'}
+            options={[
+              { value: 'auto', label: 'auto' },
+              { value: 'pick', label: 'pick…' },
+            ]}
+            onChange={(next) => {
+              if (next === 'auto') onCommit('auto')
+              else input.current?.click()
+            }}
+          />
+        </span>
+      </span>
+    </div>
   )
 }
 
