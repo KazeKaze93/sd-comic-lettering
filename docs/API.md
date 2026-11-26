@@ -54,11 +54,28 @@ The built `ui/dist/index.html` with every relative asset address rewritten to wh
   "tails": ["none", "down-left", "..."],
   "placements": ["auto", "top", "..."],
   "symbols": ["♥", "♡", "..."],
+  "marks": [
+    {"symbol": "♥", "name": "heart", "group": "Love", "mask": "data:image/png;base64,iVBORw0…"},
+    "..."
+  ],
   "defaults": { "...": "the settings object with default values" },
   "settings": { "...": "the settings object as saved" },
   "auto": {"enabled": false, "text": "", "caption": "", "sfx": ""}
 }
 ```
+
+`symbols` is the plain list of the characters that are drawn as shapes. `marks` is the same set with what a picker needs, in the order of the groups:
+
+| Field | Meaning |
+|---|---|
+| `symbol` | The character to put into a text. |
+| `name` | The name of its shape in the renderer (`render.SHAPES`). |
+| `group` | Where the picker shows it: `Love`, `Shine`, `Feelings and weather` or `Signs` (`web.MARK_GROUPS`). |
+| `mask` | The shape as a 48 by 48 PNG in a `data:` address: white where the shape is, clear elsewhere. |
+
+The masks exist so that a mark's button shows what will be drawn. Several of the characters are color emoji, which a browser paints in its own colors and its own drawing; the renderer draws every mark as a flat shape in the color of the text. The mask is made by the renderer's own `symbol_tile()`, so the page can paint the exact shape in any color (`mask-image` goes by the alpha) and nothing has to be kept in step by hand. The list is built once per server run (about 25 ms) and adds about 58 KB to the answer.
+
+A character that is in a group but has no shape is left out of `marks`, and the server says so on its error stream; the request never fails over it.
 
 ### GET `/comic_lettering/font?name=<display name>`
 

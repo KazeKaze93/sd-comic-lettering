@@ -1,11 +1,13 @@
 """HTTP side of the editor in A1111 / Forge / reForge: settings, sessions and the routes
 the React page (ui/) talks to. The core does not import this module; only the host script does.
 """
+import base64
 import datetime
 import io
 import json
 import os
 import re
+import sys
 import threading
 import time
 import uuid
@@ -16,7 +18,8 @@ from PIL import Image, PngImagePlugin
 
 from .core import PLACEMENTS, arrange, draw
 from .fonts import font_names, list_fonts
-from .render import BUBBLE_SHAPES, BUBBLE_THEMES, EXTRAS, MOODS, PALETTES, TAILS, Style
+from .render import BUBBLE_SHAPES, BUBBLE_THEMES, EXTRAS, MOODS, PALETTES, TAILS, Style, symbol_tile
+from .render import SYMBOLS as MARK_SHAPES
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETTINGS_FILE = os.path.join(BASE_DIR, "user_settings.json")
@@ -34,6 +37,64 @@ SYMBOLS = [
     u"♂", u"♀", u"✖", u"○",
     u"→", u"←", u"↑", u"↓", u"♦", u"♠", u"♣",
 ]
+# The same marks by what they are for, as the page's picker shows them.
+MARK_GROUPS = [
+    ("Love", [u"♥", u"♡", u"💕", u"💔", u"💋"]),
+    ("Shine", [u"★", u"☆", u"✦", u"✨", u"💥", u"☀", u"🌙"]),
+    ("Feelings and weather", [u"💢", u"⚡", u"🔥", u"💧", u"💦", u"♨", u"💨", u"〃", u"〰", u"🌀", u"💤", u"♪", u"♫",
+                              u"✿"]),
+    ("Signs", [u"♂", u"♀", u"✖", u"○", u"→", u"←", u"↑", u"↓", u"♦", u"♠", u"♣"]),
+]
+MARK_MASK_PX = 48  # the side of a mark's mask
+_marks_cache = None  # type: Optional[List[Dict[str, str]]]
+
+
+def _check_groups(shapeless):
+    # type: (List[str]) -> None
+    """Say so when the groups and the list of marks have drifted apart. Never an error: the
+    page still works with the marks that are in both."""
+    grouped = set(char for _, chars in MARK_GROUPS for char in chars)
+    offered = set(SYMBOLS)
+    if grouped == offered and not shapeless:
+        return
+
+    def named(chars):
+        # Code points, since a console may not be able to print the characters themselves.
+        return ", ".join("U+%04X" % ord(char) for char in sorted(chars)) or "none"
+
+    sys.stderr.write("comic_lettering: MARK_GROUPS and SYMBOLS differ. Only in the groups: %s. Only in SYMBOLS: %s. "
+                     "Without a shape: %s.\n" % (named(grouped - offered), named(offered - grouped), named(shapeless)))
+
+
+def _marks():
+    # type: () -> List[Dict[str, str]]
+    """Every mark the page offers, in the order of MARK_GROUPS: its character, the name of its
+    shape, its group, and a mask of the shape exactly as the renderer draws it.
+
+    The mask is a PNG as a data: address, white where the shape is and clear elsewhere, so the
+    page can paint it in any color (CSS mask-image goes by the alpha). Made once and kept."""
+    global _marks_cache
+    if _marks_cache is not None:
+        return _marks_cache
+    marks = []  # type: List[Dict[str, str]]
+    shapeless = []  # type: List[str]
+    for group, chars in MARK_GROUPS:
+        for char in chars:
+            try:
+                name = MARK_SHAPES[char]
+                tile = symbol_tile(name, MARK_MASK_PX)
+            except KeyError:
+                shapeless.append(char)
+                continue
+            picture = Image.new("RGBA", tile.size, (255, 255, 255, 0))
+            picture.putalpha(tile)
+            buffer = io.BytesIO()
+            picture.save(buffer, "PNG", optimize=True)
+            marks.append({"symbol": char, "name": name, "group": group,
+                          "mask": "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")})
+    _check_groups(shapeless)
+    _marks_cache = marks
+    return marks
 
 # The look, remembered between sessions.
 DEFAULTS = {
@@ -271,7 +332,7 @@ def options_payload():
     return {
         "fonts": fonts, "sameFont": SAME_FONT, "palettes": list(PALETTES), "moods": list(MOODS),
         "extras": list(EXTRAS), "shapes": list(BUBBLE_SHAPES), "themes": list(BUBBLE_THEMES),
-        "tails": list(TAILS), "placements": list(PLACEMENTS), "symbols": SYMBOLS,
+        "tails": list(TAILS), "placements": list(PLACEMENTS), "symbols": SYMBOLS, "marks": _marks(),
         "defaults": merge_values({}), "settings": load_settings(), "auto": load_auto(),
     }
 
