@@ -407,40 +407,18 @@ export function ColorField({
               { value: 'pick', label: 'pick…' },
             ]}
             onChange={(next) => {
-              if (next === 'auto') onCommit('auto')
-              else input.current?.click()
+              if (next === 'auto') {
+                onCommit('auto')
+                return
+              }
+              // From "auto" the color the picker opens on is taken at once: a browser says
+              // nothing when the picker is closed on the color it opened with.
+              if (!picked) onCommit(last.current)
+              input.current?.click()
             }}
           />
         </span>
       </span>
     </div>
-  )
-}
-
-export function TextInput({
-  label,
-  value,
-  onChange,
-  onCommit,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  onCommit: () => void
-}) {
-  return (
-    <label className="block min-w-0">
-      <Label>{label}</Label>
-      <input
-        type="text"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={onCommit}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') onCommit()
-        }}
-        className="mt-0.5 h-7 w-full rounded border border-cl-border bg-cl-raised px-2 text-xs"
-      />
-    </label>
   )
 }

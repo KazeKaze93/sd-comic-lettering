@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import { BUBBLE_SHAPES, BUBBLE_TAILS } from '../geometry'
-import type { BubbleShape, BubbleTail, Region, RegionKind, SectionId } from '../types'
-import { Button, ColorField, Icon, Section, Segmented, Select, Slider, Toggle } from './controls'
+import type { BubbleShape, BubbleTail, Region, RegionKind, SectionId, Tool } from '../types'
+import { Button, ColorField, Icon, IconButton, Section, Segmented, Select, Slider, Toggle } from './controls'
 
 type FieldName = 'text' | 'caption' | 'sfx'
 
@@ -73,19 +73,32 @@ const FILLS: { value: Region['fill']; label: string }[] = [
   { value: 'dark', label: 'Dark bubble' },
 ]
 
-/** The drawing tools and the areas drawn with them. */
+const KIND_NAMES: Record<RegionKind, string> = { text: 'text', sfx: 'effect', keepout: 'keep out' }
+
+/** What to do with the tool in hand, in a line; shown while no area is picked. */
+const TOOL_HINTS: Record<Tool, string> = {
+  off: 'Pick a drawing tool on the left, or click an area to change it.',
+  bubble: 'Drag on the image where the bubble goes, or just click.',
+  brush: 'Paint where the words go. A field for the text opens beside it.',
+  eraser: 'Rub out what was painted.',
+}
+
+/** The areas drawn by hand. The picked one shows its settings (its text is typed on the image);
+ * the others are a line each. What the tool in hand will draw next shows only while no area is
+ * picked, so a bubble's shape and tail are never on the panel twice. */
 function AreasPanel() {
   const tool = useStore((state) => state.tool)
   const brush = useStore((state) => state.brush)
-  const picked = useStore((state) => state.region)
+  const pickedId = useStore((state) => state.region)
   const regions = useStore((state) => state.slots[state.source]?.regions)
   const stamp = useStore((state) => state.stamp)
   const { setBrush, pickRegion, changeRegion, removeRegion, undoShape, render, setStamp, reshape } = useStore.getState()
   const shapes = BUBBLE_SHAPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }))
   if (!regions) return null
+  const picked = regions.some((region) => region.id === pickedId) ? pickedId : null
   return (
     <>
-      {tool === 'bubble' && (
+      {picked === null && tool === 'bubble' && (
         <>
           <Segmented<BubbleShape> value={stamp.shape} options={shapes} onChange={(shape) => setStamp({ shape })} />
           <div className="grid grid-cols-2 gap-2">
@@ -94,7 +107,7 @@ function AreasPanel() {
           </div>
         </>
       )}
-      {(tool === 'brush' || tool === 'eraser') && (
+      {picked === null && (tool === 'brush' || tool === 'eraser') && (
         <Slider
           label={tool === 'eraser' ? 'Eraser width, %' : 'Brush width, %'}
           hint="Width, % of the image's shorter side"
@@ -106,103 +119,98 @@ function AreasPanel() {
           onCommit={() => undefined}
         />
       )}
-      <p className="text-[11px] leading-snug text-cl-muted">
-        {tool === 'off'
-          ? 'Pick the bubble or the brush. The bubble tool puts a ready-made bubble where you drag; the brush paints any shape. Text or an effect is fitted into the area; a keep-out area is left free. Once an area has its text and is closed with Done, its tint goes; point at it with the arrow to see it again.'
-          : tool === 'eraser'
-            ? 'The eraser rubs out whatever it passes over.'
-            : tool === 'bubble'
-              ? 'Choose a shape, then drag on the image where the bubble goes (or just click). A field for its text opens beside it.'
-              : 'Paint an area: a field for its text opens beside it. Done closes it, and the next thing you paint is a new area.'}
-      </p>
-      {regions.map((region, index) => (
-        <div
-          key={region.id}
-          onClick={() => pickRegion(region.id)}
-          className={`flex flex-col gap-1.5 rounded border p-2 ${region.id === picked ? 'border-cl-accent' : 'border-cl-border'}`}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-cl-text">Area {index + 1}</span>
-            <span className="flex items-center gap-1">
-              <Button variant="quiet" onClick={() => undoShape(region.id)} title="Take back the last thing drawn in this area">
-                Undo
-              </Button>
-              <Button variant="quiet" onClick={() => removeRegion(region.id)}>
-                Delete
-              </Button>
-            </span>
+      {picked === null && <p className="text-[11px] leading-snug text-cl-muted">{TOOL_HINTS[tool]}</p>}
+      {regions.map((region, index) =>
+        region.id !== picked ? (
+          <div key={region.id} className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => pickRegion(region.id)}
+              className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded border border-cl-border px-2 text-left hover:border-cl-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-cl-accent"
+            >
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${region.kind === 'keepout' ? 'bg-cl-danger' : 'bg-cl-hand'}`} aria-hidden="true" />
+              <span className="shrink-0 text-xs font-medium text-cl-text">Area {index + 1}</span>
+              <span className="shrink-0 text-[11px] text-cl-muted">{KIND_NAMES[region.kind]}</span>
+              <span className="min-w-0 flex-1 truncate text-[11px] text-cl-muted">
+                {region.kind !== 'keepout' && region.text.trim() ? region.text.trim().replace(/\s+/g, ' ') : '—'}
+              </span>
+            </button>
+            <IconButton label={`Delete area ${index + 1}`} onClick={() => removeRegion(region.id)}>
+              <Icon>
+                <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5" />
+              </Icon>
+            </IconButton>
           </div>
-          <Segmented value={region.kind} options={KINDS} onChange={(kind) => changeRegion(region.id, { kind })} />
-          {region.template && (
-            <>
-              <Segmented<BubbleShape> value={region.template.shape} options={shapes} onChange={(shape) => reshape(region.id, { shape })} />
-              <Select label="Tail" value={region.template.tail} options={BUBBLE_TAILS} onChange={(tail) => reshape(region.id, { tail: tail as BubbleTail })} />
-            </>
-          )}
-          {region.kind === 'text' && (
-            <Segmented value={region.fill} options={FILLS} onChange={(fill) => changeRegion(region.id, { fill })} />
-          )}
-          {region.kind !== 'keepout' && (
-            <textarea
-              value={region.text}
-              rows={2}
-              spellCheck={false}
-              placeholder={region.kind === 'sfx' ? 'One effect: BOOM, THUD x3' : 'Text for this area'}
-              onChange={(event) => changeRegion(region.id, { text: event.target.value }, false)}
-              onBlur={() => void render()}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void render()
-              }}
-              className="w-full resize-y rounded border border-cl-border bg-cl-raised px-2 py-1 text-sm placeholder:text-cl-muted"
-            />
-          )}
-          {region.kind !== 'keepout' && region.shapes.some((shape) => shape.type === 'stroke') && (
-            <Toggle
-              checked={region.follow === true}
-              onChange={(follow) => changeRegion(region.id, { follow })}
-              label="Write along the brush stroke"
-            />
-          )}
-          {region.kind !== 'keepout' && region.follow === true && (
-            <Toggle
-              checked={region.flip === true}
-              onChange={(flip) => changeRegion(region.id, { flip })}
-              label="Turn the text round"
-            />
-          )}
-          {region.kind !== 'keepout' && (
-            <>
-              <Slider
-                label="Size, %"
-                hint="Text size, % of what the area gives"
-                value={Math.round((region.scale ?? 1) * 100)}
-                min={30}
-                max={300}
-                step={5}
-                onChange={(value) => changeRegion(region.id, { scale: value / 100 }, false)}
-                onCommit={() => void render()}
-              />
-              {region.follow !== true && (
+        ) : (
+          <div key={region.id} className="flex flex-col gap-1.5 rounded border border-cl-accent p-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-cl-text">Area {index + 1}</span>
+              <span className="flex items-center">
+                <Button variant="quiet" onClick={() => undoShape(region.id)} title="Take back the last thing drawn in this area">
+                  Undo stroke
+                </Button>
+                <Button variant="quiet" onClick={() => removeRegion(region.id)}>
+                  Delete
+                </Button>
+                <Button
+                  variant="quiet"
+                  onClick={() => {
+                    void render()
+                    pickRegion(null)
+                  }}
+                >
+                  Done
+                </Button>
+              </span>
+            </div>
+            <Segmented value={region.kind} options={KINDS} onChange={(kind) => changeRegion(region.id, { kind })} />
+            {region.template && (
+              <>
+                <Segmented<BubbleShape> value={region.template.shape} options={shapes} onChange={(shape) => reshape(region.id, { shape })} />
+                <Select label="Tail" value={region.template.tail} options={BUBBLE_TAILS} onChange={(tail) => reshape(region.id, { tail: tail as BubbleTail })} />
+              </>
+            )}
+            {region.kind === 'text' && <Segmented value={region.fill} options={FILLS} onChange={(fill) => changeRegion(region.id, { fill })} />}
+            {region.kind !== 'keepout' && region.shapes.some((shape) => shape.type === 'stroke') && (
+              <Toggle checked={region.follow === true} onChange={(follow) => changeRegion(region.id, { follow })} label="Write along the brush stroke" />
+            )}
+            {region.kind !== 'keepout' && region.follow === true && (
+              <Toggle checked={region.flip === true} onChange={(flip) => changeRegion(region.id, { flip })} label="Turn the text round" />
+            )}
+            {region.kind !== 'keepout' && (
+              <>
                 <Slider
-                  label={region.rotation === undefined && region.kind === 'sfx' ? 'Tilt, ° (random now)' : 'Tilt, °'}
-                  hint="Tilt of the text, degrees"
-                  value={region.rotation ?? 0}
-                  min={-90}
-                  max={90}
-                  step={1}
-                  onChange={(value) => changeRegion(region.id, { rotation: value }, false)}
+                  label="Size, %"
+                  hint="Text size, % of what the area gives"
+                  value={Math.round((region.scale ?? 1) * 100)}
+                  min={30}
+                  max={300}
+                  step={5}
+                  onChange={(value) => changeRegion(region.id, { scale: value / 100 }, false)}
                   onCommit={() => void render()}
                 />
-              )}
-              {region.follow !== true && region.rotation !== undefined && (
-                <Button variant="quiet" onClick={() => changeRegion(region.id, { rotation: undefined })}>
-                  {region.kind === 'sfx' ? 'Back to a random tilt' : 'Back to no tilt of its own'}
-                </Button>
-              )}
-            </>
-          )}
-        </div>
-      ))}
+                {region.follow !== true && (
+                  <Slider
+                    label={region.rotation === undefined && region.kind === 'sfx' ? 'Tilt, ° (random now)' : 'Tilt, °'}
+                    hint="Tilt of the text, degrees"
+                    value={region.rotation ?? 0}
+                    min={-90}
+                    max={90}
+                    step={1}
+                    onChange={(value) => changeRegion(region.id, { rotation: value }, false)}
+                    onCommit={() => void render()}
+                  />
+                )}
+                {region.follow !== true && region.rotation !== undefined && (
+                  <Button variant="quiet" onClick={() => changeRegion(region.id, { rotation: undefined })}>
+                    {region.kind === 'sfx' ? 'Back to a random tilt' : 'Back to no tilt of its own'}
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        ),
+      )}
     </>
   )
 }
