@@ -150,7 +150,16 @@ def voice(style, which):
 def palette(style, which, accent):
     """The color preset for one kind of text: a dict, or None for the plain defaults."""
     spec = PALETTES.get(getattr(style, which + "_colors", "auto"))
+    if spec == "custom":
+        return None  # no preset: the color fields decide, see _own_color
     return accent if spec == "accent" else spec
+
+
+def _own_color(style, which, value, default):
+    """A color field (text_color and the like): it counts only with the colors set to "custom"."""
+    if getattr(style, which + "_colors", "auto") != "custom":
+        return default
+    return parse_color(value, default)
 
 
 def accent_palette(rgb):
@@ -187,7 +196,7 @@ def _bubble_ink(style, bubble, pal):
     light = _brightness(bubble.color) > 128
     plain = (0, 0, 0) if light else (getattr(bubble, "outline_color", None) or (255, 255, 255))
     if pal is None:
-        return parse_color(style.text_color, plain)
+        return _own_color(style, "bubble", style.text_color, plain)
     return pal["ink"] if light else pal["fill"]
 
 
@@ -196,10 +205,11 @@ def _paint(style, which, pal, size, font=None):
     stroke_px = int(round(size * max(0.0, style.stroke_width if which == "caption" else 0.14)))
     shadow = style.shadow if which == "caption" else 0.0
     if pal is None:
-        fill = parse_color(style.text_color if which == "caption" else style.sfx_color, (255, 255, 255))
+        fill = _own_color(style, which, style.text_color if which == "caption" else style.sfx_color,
+                          (255, 255, 255))
         stroke = (0, 0, 0) if _brightness(fill) > 128 else (255, 255, 255)
         if which == "caption":
-            stroke = parse_color(style.stroke_color, stroke)
+            stroke = _own_color(style, which, style.stroke_color, stroke)
         return Paint(fill, stroke, stroke_px, shadow=shadow)
     # A colored fill needs body: on a thin font the outlines would be wider than the
     # letters and drown the color. Thicken the fill and keep the outlines modest.
@@ -408,9 +418,17 @@ def _letter_free(image, rgb, text, placement, style, static, pal, energy, precio
                     covered = static[rows[0]:rows[1], cols]
                     share = float(covered.mean()) if covered.size else 1.0
                     total = edge_energy(rgb, *rows) + 1000.0 * share
+                    clear = share < 0.02
                     if precious is not None:
                         total += 3000.0 * float(precious[rows[0]:rows[1], cols].mean())
-                    options.append((factor < 1.0, reach < 0.5, total, share < 0.02, name, fit))
+                        # A small bubble is far below 2% of the block: none of it may be
+                        # touched, the outline and the shadow around the letters included.
+                        pad = int(0.5 * fit[1])
+                        if precious[max(0, rows[0] - pad):rows[1] + pad,
+                                    max(0, x0 - pad):max(0, x0 + int(fit[2]) + pad)].any():
+                            clear = False
+                            total += 400.0  # when nothing is clear: rather on a body than on a bubble
+                    options.append((factor < 1.0, reach < 0.5, total, clear, name, fit))
             if any(option[3] for option in options):
                 break
         clear = [option for option in options if option[3]]
@@ -512,17 +530,19 @@ def _letter_drawn_bubble(image, rgb, text, placement, style, static, pal, energy
             x, y = int(cx - drawn[2].width / 2.0), int(cy - drawn[2].height / 2.0)
             tried.append((drawn, x, y))
             clear = _covered(static, precious, x, y, drawn[2].width, drawn[2].height) < 0.02
+            if clear and precious is not None:
+                clear = not precious[max(0, y):max(0, y + drawn[2].height), max(0, x):max(0, x + drawn[2].width)].any()
             if clear:
                 break
         (lines, size, fill_mask, outline, bx, by), x, y = tried[-1] if clear else tried[2]
     if style.caption_bubble_theme == "dark":
         body = (14, 14, 18)
-        line = pal["fill"] if pal else parse_color(style.text_color, (255, 255, 255))
+        line = pal["fill"] if pal else _own_color(style, "caption", style.text_color, (255, 255, 255))
         ink = line
     else:
         body = (250, 250, 250)
         line = (15, 15, 15)
-        ink = pal["ink"] if pal else parse_color(style.text_color, (0, 0, 0))
+        ink = pal["ink"] if pal else _own_color(style, "caption", style.text_color, (0, 0, 0))
     bubble = Image.alpha_composite(_solid(line, outline), _solid(body, fill_mask))
     x = max(0, min(x, width - bubble.width))
     y = max(0, min(y, height - bubble.height))

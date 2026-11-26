@@ -110,7 +110,7 @@ The caption has one more row. `Bubble color` and `Tail` appear only when a bubbl
 | `margin` | Gap between the text and the bubble edge. |
 | `free_size`, `stroke_width`, `shadow` | Caption: font size, outline width and drop shadow. |
 | `sfx_size`, `sfx_tilt`, `sfx_opacity` | Sound effects: size, the largest random tilt, transparency. |
-| `text_color`, `stroke_color`, `sfx_color` | `auto` or `#RRGGBB`. Used when the Colors list is `auto`. |
+| `text_color`, `stroke_color`, `sfx_color` | `auto` or `#RRGGBB`. Used when the Colors list of that kind of text is `custom`; `text_color` also colors the bubble text when the bubbles' Colors is `custom`. |
 | `jitter`, `size_jitter`, `rough`, `line_tilt`, `line_shift`, `line_spacing` | The `custom` mood: letter wobble, letters of different sizes, ragged edges, tilt and sideways shift of each line, distance between lines. |
 | `arc`, `rotation` | Bend and tilt of the whole block. |
 | `soften`, `grain`, `opacity` | Blur, uneven ink and transparency, to blend the letters with the art. |

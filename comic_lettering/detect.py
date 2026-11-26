@@ -39,7 +39,7 @@ def luminance(rgb):
     return rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
 
 
-def detect_bubbles(rgb, white_threshold=120, min_area=0.003, max_area=0.6,
+def detect_bubbles(rgb, white_threshold=120, min_area=0.0015, max_area=0.6,
                    min_outline=0.8, rtl=False):
     # type: (np.ndarray, int, float, float, float, bool) -> List[Bubble]
     """Find speech bubbles in an RGB uint8 array.
@@ -53,6 +53,9 @@ def detect_bubbles(rgb, white_threshold=120, min_area=0.003, max_area=0.6,
         if is_bubble(item, min_outline):
             found.append(item["bubble"])
     return _reading_order(found, rtl)
+
+
+SMALL = 0.003  # share of the image below which a bubble has to pass the stricter test
 
 
 def is_bubble(item, min_outline=0.8):
@@ -70,6 +73,13 @@ def is_bubble(item, min_outline=0.8):
         return (item["flatness"] <= 2.5 and item["solidity"] >= 0.9
                 and 0.45 <= item["extent"] < 0.96 and item["outline"] >= max(min_outline, 0.85)
                 and item["body"] >= 0.55 and item["line_contrast"] >= 80.0)
+    if item["share"] < SMALL:
+        # Small ones (the detector used to stop at SMALL): cuffs, window panes and the
+        # insides of big letters are just as flat and outlined. On real generations a
+        # small bubble is plump (extent 0.79 and up) with a closed outline; the
+        # look-alikes are thinner or more ragged (extent up to 0.67).
+        return (item["flatness"] <= 1.0 and item["solidity"] >= 0.95 and 0.7 <= item["extent"] < 0.96
+                and item["outline"] >= max(min_outline, 0.95) and item["body"] >= 0.55)
     return (item["flatness"] <= 1.3 and item["solidity"] >= 0.85
             and 0.45 <= item["extent"] < 0.96 and item["outline"] >= min_outline
             and item["body"] >= 0.55)
@@ -106,7 +116,7 @@ def _solidity(mask):
 MAX_TINT = 48
 
 
-def scan(rgb, floor=120, min_area=0.003, max_area=0.6, ceiling=60):
+def scan(rgb, floor=120, min_area=0.0015, max_area=0.6, ceiling=60):
     """Yield every flat region that could be a bubble, with the measurements used to judge it.
 
     Two kinds are looked for: a light, unsaturated fill inside a dark outline, and a
@@ -201,6 +211,7 @@ def _scan_pass(rgb, lum, flat, dark_fill, min_area, max_area):
                 bubble.outline_color = tuple(int(v) for v in np.median(rgb[y0:y1, x0:x1][line], axis=0))
         yield {
             "bubble": bubble,
+            "share": filled_area / float(total),
             "flatness": float(pixels.mean(axis=1).std()),
             "solidity": _solidity(filled),
             "extent": filled_area / float(box),

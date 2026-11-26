@@ -329,15 +329,15 @@ class ComicLetteringScript(scripts.Script):
                     slide("stroke_width", "Outline width", 0, 0.5, 0.01)
                     slide("shadow", "Shadow", 0, 1, 0.05)
                 with gr.Row():
-                    c["text_color"] = gr.Textbox(label="Text color with Colors: auto (#RRGGBB or auto)", value=s["text_color"])
-                    c["stroke_color"] = gr.Textbox(label="Outline color with Colors: auto (#RRGGBB or auto)", value=s["stroke_color"])
+                    c["text_color"] = gr.Textbox(label="Text color for Colors: custom (#RRGGBB or auto)", value=s["text_color"])
+                    c["stroke_color"] = gr.Textbox(label="Outline color for Colors: custom (#RRGGBB or auto)", value=s["stroke_color"])
                 heading("Sound effects")
                 with gr.Row():
                     slide("sfx_size", "Font size, % of image height", 1, 30, 0.5)
                     slide("sfx_tilt", "Largest tilt, degrees", 0, 45, 1)
                     slide("sfx_opacity", "Opacity", 0.1, 1, 0.05)
                 with gr.Row():
-                    c["sfx_color"] = gr.Textbox(label="Color with Colors: auto (#RRGGBB or auto)", value=s["sfx_color"])
+                    c["sfx_color"] = gr.Textbox(label="Color for Colors: custom (#RRGGBB or auto)", value=s["sfx_color"])
                     c["sfx_seed"] = gr.Number(label="Arrangement number (Move raises it)", value=s["sfx_seed"], precision=0)
                 heading("Mood: custom")
                 with gr.Row():
