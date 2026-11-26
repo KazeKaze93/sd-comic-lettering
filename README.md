@@ -62,7 +62,7 @@ The `Comic Lettering` button sits under the txt2img result gallery. It opens the
 | `Effect` | Its text is one sound effect, sized to the area and put in its middle. |
 | `Keep out` | Nothing that the script places (caption, drawn bubble, sound effects) lands there. |
 
-Drawing adds to the picked area; `New area` starts another one. Everything the script places keeps off every area. Areas and things placed by hand belong to the image they were made on: they stay when the editor is closed and opened again on the same image, and go with the next generation. Set the tool back to `Off` to move things by their frames again.
+An area painted with the brush starts with `Write along the brush stroke` on: the text runs along the stroke and bends with it, in the direction you drew it, with letters about as tall as the brush is wide. Paint one stroke along a contour to set a word on it. Untick it to fit the text into the painted shape instead. The card of a `Text` or `Effect` area also has `Size` (how large the text is against what the area gives it; above 100% it may reach out of the area) and `Tilt` (in degrees, counter-clockwise; an effect is tilted at random until you set it). Drawing adds to the picked area; `New area` starts another one. Everything the script places keeps off every area. Areas and things placed by hand belong to the image they were made on: they stay when the editor is closed and opened again on the same image, and go with the next generation. Set the tool back to `Off` to move things by their frames again.
 
 The status line under the image says how many bubbles were found and filled. The look is remembered in `user_settings.json`. The texts are remembered only while `Letter every new image` is on, since the host then needs them.
 

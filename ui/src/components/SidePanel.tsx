@@ -123,6 +123,42 @@ function AreasPanel() {
               className="w-full resize-y rounded border border-cl-border bg-cl-raised px-2 py-1 text-sm placeholder:text-cl-muted"
             />
           )}
+          {region.kind !== 'keepout' && region.shapes.some((shape) => shape.type === 'stroke') && (
+            <Toggle
+              checked={region.follow === true}
+              onChange={(follow) => changeRegion(region.id, { follow })}
+              label="Write along the brush stroke"
+            />
+          )}
+          {region.kind !== 'keepout' && (
+            <>
+              <Slider
+                label="Size, % of what the area gives"
+                value={Math.round((region.scale ?? 1) * 100)}
+                min={30}
+                max={300}
+                step={5}
+                onChange={(value) => changeRegion(region.id, { scale: value / 100 }, false)}
+                onCommit={() => void render()}
+              />
+              {region.follow !== true && (
+                <Slider
+                  label={region.rotation === undefined && region.kind === 'sfx' ? 'Tilt, degrees (random now)' : 'Tilt, degrees'}
+                  value={region.rotation ?? 0}
+                  min={-90}
+                  max={90}
+                  step={1}
+                  onChange={(value) => changeRegion(region.id, { rotation: value }, false)}
+                  onCommit={() => void render()}
+                />
+              )}
+              {region.follow !== true && region.rotation !== undefined && (
+                <Button variant="quiet" onClick={() => changeRegion(region.id, { rotation: undefined })}>
+                  {region.kind === 'sfx' ? 'Back to a random tilt' : 'Back to no tilt of its own'}
+                </Button>
+              )}
+            </>
+          )}
         </div>
       ))}
       {picked && tool !== 'off' && <Button onClick={() => pickRegion(null)}>New area</Button>}

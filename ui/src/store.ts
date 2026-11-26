@@ -265,7 +265,8 @@ export const useStore = create<State>((set, get) => {
       } else {
         regionCount += 1
         id = `a${Date.now().toString(36)}${regionCount}`
-        regions = [...slot.regions, { id, kind: 'text', shapes: [shape], text: '', fill: 'none' }]
+        // What is painted with the brush is a line to write along; an outline is a shape to fill.
+        regions = [...slot.regions, { id, kind: 'text', shapes: [shape], text: '', fill: 'none', follow: shape.type === 'stroke' }]
       }
       set({ region: id, slots: { ...state.slots, [state.source]: { ...slot, regions } } })
       void get().render()

@@ -71,6 +71,12 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     shapes: {"type": "polygon", "points": [[x, y], ...]} for an outline that is closed and
     filled, {"type": "stroke", "points": [...], "width": w} for a brush stroke; a region is
     all of its shapes together. Whatever is placed automatically keeps off every region.
+    Optional: "rotation", the tilt of the text or effect in degrees, counter-clockwise
+    (an effect is tilted at random without it), and "scale", how large it is against
+    what the area would give it (1 by default; above 1 it may reach out of the area).
+    "follow": the text runs along the region's longest brush stroke, bending with it, in
+    the direction the stroke was drawn (left to right if it was drawn leftwards); its
+    letters are about as tall as the brush is wide.
 
     Returns the scene: a dict of plain values (it survives a trip through JSON) that
     draw() turns into the lettered image. scene["items"] lists what is drawn, in order:
@@ -144,13 +150,19 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     for number, (area, mask) in enumerate(zip(areas, masks)):
         if numbers or not area["text"] or not mask.any():
             continue
-        if area["kind"] == "text":
+        line = _stroke_line(area) if area.get("follow") else None
+        if line is not None:
+            item = _place_along(area, line, number, style, accent)
+            items.append(item)
+            info["font_sizes"].append(item["size"])
+            info["regions"] = info.get("regions", 0) + 1
+        elif area["kind"] == "text":
             item = _place_region(height, area, mask, number, style, palette(style, "caption", accent))
             items.append(item)
             info["font_sizes"].append(item["size"])
             info["regions"] = info.get("regions", 0) + 1
         elif area["kind"] == "sfx":
-            held.append((area, _region_pin(area["text"], mask)))
+            held.append((area, _region_pin(area, mask)))
             info["regions"] = info.get("regions", 0) + 1
     caption_box = None
     if free:
@@ -212,6 +224,9 @@ def draw(image, scene):
         if item["kind"] == "region":
             if item["region"] < len(masks):
                 out = _draw_region(out, item, masks[item["region"]], style, accent)
+        elif item["kind"] == "path":
+            if item["region"] < len(masks):
+                out = _draw_along(out, item, masks[item["region"]], style, accent)
         elif item["kind"] == "caption":
             out = _draw_caption(out, item, style, palette(style, "caption", accent), precious)
             _reserve(taken, item["box"])
@@ -250,9 +265,18 @@ def _regions(regions):
             continue
         kind = region["kind"]
         text = region.get("text") if isinstance(region.get("text"), str) else ""
+
+        def number_of(key, low, high, default):
+            value = region.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value:
+                return max(low, min(high, float(value)))
+            return default
+
         clean.append({"id": str(region.get("id") or number)[:40], "kind": kind, "shapes": shapes[:200],
                       "text": "" if kind == "keepout" else text.replace("\r", "").strip(),
-                      "fill": region.get("fill") if kind == "text" and region.get("fill") in ("light", "dark") else "none"})
+                      "fill": region.get("fill") if kind == "text" and region.get("fill") in ("light", "dark") else "none",
+                      "rotation": number_of("rotation", -180.0, 180.0, None), "scale": number_of("scale", 0.2, 4.0, 1.0),
+                      "follow": kind != "keepout" and region.get("follow") is True})
         if len(clean) >= 40:
             break
     return clean
@@ -306,9 +330,157 @@ def _place_region(height, area, mask, number, style, pal):
     """The scene item for a text fitted into a region."""
     filled = area["fill"] != "none"
     look = _region_look(style, filled, pal)
-    lines, size, cx, cy = _fit_text(height, _Area(mask), parse_text(area["text"], style.uppercase), look, False)
-    return {"kind": "region", "id": "region:%s" % area["id"], "region": number, "text": area["text"],
+    room = mask
+    scale = area.get("scale") or 1.0
+    if scale != 1.0:
+        # Larger or smaller than the area gives: fit into the area blown up, or shrunk,
+        # about its middle. The text keeps its middle and its line breaks stay sensible.
+        cy, cx = ndi.center_of_mass(mask)
+        room = ndi.affine_transform(mask.astype(np.uint8), [1.0 / scale, 1.0 / scale],
+                                    offset=[cy - cy / scale, cx - cx / scale], order=0) > 0
+        if not room.any():
+            room = mask
+    lines, size, cx, cy = _fit_text(height, _Area(room), parse_text(area["text"], style.uppercase), look, False)
+    item = {"kind": "region", "id": "region:%s" % area["id"], "region": number, "text": area["text"],
             "lines": _plain(lines), "size": int(size), "cx": float(cx), "cy": float(cy), "fill": area["fill"]}
+    if area.get("rotation") is not None:
+        item["rotation"] = float(area["rotation"])
+    return item
+
+
+def _stroke_line(area):
+    """(points, brush width) of the centre line of a region's longest brush stroke, evened
+    out and smoothed; None if there is no stroke long enough to write along."""
+    best = None
+    for shape in area["shapes"]:
+        if shape["type"] != "stroke" or len(shape["points"]) < 2:
+            continue
+        points = np.array(shape["points"], dtype=np.float64)
+        length = float(np.hypot(*np.diff(points, axis=0).T).sum())
+        if best is None or length > best[0]:
+            best = (length, points, float(shape["width"]))
+    if best is None or best[0] < 0.8 * best[2]:
+        return None
+    length, points, wide = best
+    steps = np.hypot(*np.diff(points, axis=0).T)
+    points = points[np.concatenate([[True], steps > 1e-6])]
+    along = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(points, axis=0).T))])
+    count = max(8, int(length / 4.0))
+    marks = np.linspace(0.0, along[-1], count)
+    line = np.stack([np.interp(marks, along, points[:, 0]), np.interp(marks, along, points[:, 1])], axis=1)
+    # A hand shakes: average over about half the brush width. The ends are padded with
+    # themselves so the line keeps its length.
+    window = max(1, int(wide / 2.0 / max(along[-1] / count, 1e-6))) | 1
+    if window > 1 and count > window:
+        padded = np.pad(line, ((window // 2, window // 2), (0, 0)), mode="edge")
+        kernel = np.ones(window) / window
+        line = np.stack([np.convolve(padded[:, 0], kernel, mode="valid"),
+                         np.convolve(padded[:, 1], kernel, mode="valid")], axis=1)
+    # Text reads left to right: a stroke drawn leftwards is taken the other way round.
+    run = line[-1] - line[0]
+    if abs(run[0]) > abs(run[1]) and run[0] < 0:
+        line = line[::-1]
+    return line, wide
+
+
+def _along_look(style, voice_name, pal):
+    """The style of a text that runs along a stroke: straight here, the stroke bends it."""
+    if voice_name == "sfx":
+        look = voice(style, "sfx")
+        look.opacity = style.sfx_opacity
+        look.line_spacing += 1.2 * (0.14 + (0.07 if pal and pal.get("outer") else 0.0))
+    elif voice_name == "bubble":
+        look = voice(style, "bubble")
+    else:
+        look = _caption_look(style, pal)
+    look.rotation = 0.0
+    look.arc = 0.0
+    return look
+
+
+def _along_voice(area):
+    return "sfx" if area["kind"] == "sfx" else ("bubble" if area["fill"] != "none" else "caption")
+
+
+def _place_along(area, line, number, style, accent):
+    """The scene item for a text that runs along a region's brush stroke."""
+    points, wide = line
+    voice_name = _along_voice(area)
+    pal = palette(style, "sfx" if voice_name == "sfx" else "bubble" if voice_name == "bubble" else "caption", accent)
+    look = _along_look(style, voice_name, pal)
+    paragraphs = [[word for words in parse_text(area["text"], style.uppercase) for word in words]]
+    length = float(np.hypot(*np.diff(points, axis=0).T).sum())
+    size = max(8, int(0.6 * wide * (area.get("scale") or 1.0)))
+    lines = layout(paragraphs, get_fonts(look, size), 1e9)
+    if lines[0][1] > 0.94 * length and size > 8:
+        # Too long for the stroke at this size: as large as fits its length.
+        size = max(8, int(size * 0.94 * length / lines[0][1]))
+        lines = layout(paragraphs, get_fonts(look, size), 1e9)
+    return {"kind": "path", "id": "region:%s" % area["id"], "region": number, "text": area["text"],
+            "lines": _plain(lines), "size": int(size), "voice": voice_name, "fill": area["fill"],
+            "path": [[round(float(x), 2), round(float(y), 2)] for x, y in points]}
+
+
+def _draw_along(image, item, mask, style, accent):
+    """Draw a text bent along its stroke: the straight text is cut into thin slices and
+    each slice is set on the line, turned the way the line runs there."""
+    size, voice_name = item["size"], item["voice"]
+    if voice_name == "bubble":
+        image = _paint_area(image, mask, item["fill"] == "dark")
+        pal = palette(style, "bubble", accent)
+        dark = item["fill"] == "dark"
+        plain = (255, 255, 255) if dark else (0, 0, 0)
+        paint = Paint((pal["fill"] if dark else pal["ink"]) if pal else _own_color(style, "bubble", style.text_color, plain))
+        look = _along_look(style, "bubble", None)
+    else:
+        pal = palette(style, "sfx" if voice_name == "sfx" else "caption", accent)
+        look = _along_look(style, voice_name, pal)
+        paint = _paint(style, voice_name, pal, size, look.font)
+    layer = render_block(_lines(item), size, look, paint)
+    bounds = layer.getbbox()
+    if bounds is None:
+        return image
+    layer = layer.crop(bounds)
+    points = np.array(item["path"], dtype=np.float64)
+    along = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(points, axis=0).T))])
+    length = along[-1]
+    if length <= 0:
+        return image
+
+    def at(distance):
+        distance = min(max(distance, 0.0), length)
+        return np.interp(distance, along, points[:, 0]), np.interp(distance, along, points[:, 1])
+
+    pad = layer.height + layer.width // 8 + 8
+    canvas = Image.new("RGBA", (image.width + 2 * pad, image.height + 2 * pad), (0, 0, 0, 0))
+    start = (length - layer.width) / 2.0  # the text sits in the middle of the stroke
+    step = 3
+    reach = max(6.0, 0.25 * size)  # the direction is read over this much of the line
+    for left in range(0, layer.width, step):
+        piece = layer.crop((max(0, left - 1), 0, min(layer.width, left + step + 1), layer.height))
+        if piece.getbbox() is None:
+            continue
+        where = start + left + step / 2.0
+        x, y = at(where)
+        x0, y0 = at(where - reach)
+        x1, y1 = at(where + reach)
+        turned = piece.rotate(-math.degrees(math.atan2(y1 - y0, x1 - x0)), resample=Image.BICUBIC, expand=True)
+        corner = (int(round(x - turned.width / 2.0)) + pad, int(round(y - turned.height / 2.0)) + pad)
+        if 0 <= corner[0] <= canvas.width - turned.width and 0 <= corner[1] <= canvas.height - turned.height:
+            canvas.alpha_composite(turned, corner)
+    bent = canvas.crop((pad, pad, pad + image.width, pad + image.height))
+    return Image.alpha_composite(image.convert("RGBA"), bent)
+
+
+def _paint_area(image, mask, dark):
+    """Paint a region as a bubble: a body with an outline around it."""
+    body, line = ((14, 14, 18), (245, 245, 245)) if dark else ((250, 250, 250), (15, 15, 15))
+    wide = max(2, int(round(0.004 * image.height)))
+    edge = Image.fromarray((ndi.binary_dilation(mask, iterations=wide) * 255).astype(np.uint8))
+    fill = Image.fromarray((mask * 255).astype(np.uint8))
+    soft = ImageFilter.GaussianBlur(0.8)
+    painted = Image.alpha_composite(_solid(line, edge.filter(soft)), _solid(body, fill.filter(soft)))
+    return Image.alpha_composite(image.convert("RGBA"), painted)
 
 
 def _draw_region(image, item, mask, style, accent):
@@ -316,20 +488,16 @@ def _draw_region(image, item, mask, style, accent):
     if item["fill"] == "none":
         pal = palette(style, "caption", accent)
         look = _region_look(style, False, pal)
+        look.rotation = item.get("rotation", look.rotation)
         paint = _paint(style, "caption", pal, size, look.font)
         return paste_centered(image, render_block(_lines(item), size, look, paint), item["cx"], item["cy"])
     dark = item["fill"] == "dark"
-    body, line = ((14, 14, 18), (245, 245, 245)) if dark else ((250, 250, 250), (15, 15, 15))
-    wide = max(2, int(round(0.004 * image.height)))
-    edge = Image.fromarray((ndi.binary_dilation(mask, iterations=wide) * 255).astype(np.uint8))
-    fill = Image.fromarray((mask * 255).astype(np.uint8))
-    soft = ImageFilter.GaussianBlur(0.8)
-    painted = Image.alpha_composite(_solid(line, edge.filter(soft)), _solid(body, fill.filter(soft)))
-    image = Image.alpha_composite(image.convert("RGBA"), painted)
+    image = _paint_area(image, mask, dark)
     pal = palette(style, "bubble", accent)
     plain = (255, 255, 255) if dark else (0, 0, 0)
     ink = (pal["fill"] if dark else pal["ink"]) if pal else _own_color(style, "bubble", style.text_color, plain)
     look = _region_look(style, True, None)
+    look.rotation = item.get("rotation", look.rotation)
     return paste_centered(image, render_block(_lines(item), size, look, Paint(ink)), item["cx"], item["cy"])
 
 
@@ -338,14 +506,17 @@ def _sfx_units(word):
     return sum(0.95 if ch in SYMBOLS else 0.3 if ch.isspace() else 0.5 for ch in word.replace("*", ""))
 
 
-def _region_pin(effect, mask):
-    """The pin that puts a sound effect into a region: its middle, and the size that fills it."""
+def _region_pin(area, mask):
+    """The pin that puts a region's sound effect into it: its middle, the size that fills it, its tilt if set."""
     ys, xs = np.nonzero(mask)
     box_w, box_h = xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
-    word, count = _repeat(effect)
+    word, count = _repeat(area["text"])
     size = min(box_w / (_sfx_units(word) + 0.8), box_h / (1.4 if count == 1 else 0.75 * count + 0.8))
     cy, cx = ndi.center_of_mass(mask)
-    return {"cx": float(cx), "cy": float(cy), "size": max(10, int(size * 0.9))}
+    pin = {"cx": float(cx), "cy": float(cy), "size": max(10, int(size * 0.9 * (area.get("scale") or 1.0)))}
+    if area.get("rotation") is not None:
+        pin["rotation"] = float(area["rotation"])
+    return pin
 
 
 def _pin(pin):

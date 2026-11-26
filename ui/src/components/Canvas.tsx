@@ -68,6 +68,7 @@ const NAMES: Record<SceneItem['kind'], string> = {
   balloon: 'drawn bubble',
   sfx: 'effect',
   region: 'area',
+  path: 'area',
 }
 
 const TINTS: Record<Region['kind'], string> = {
@@ -405,7 +406,7 @@ function Picture({ slot }: { slot: Slot }) {
               <Areas slot={slot} drawing={drawing} />
               {tool === 'off' &&
                 slot.items
-                  .filter((item) => item.id && item.kind !== 'region' && item.region === undefined)
+                  .filter((item) => item.id && item.kind !== 'region' && item.kind !== 'path' && item.region === undefined)
                   .map((item) => <Handle key={item.id} item={item} slot={slot} scale={scale} />)}
             </>
           )}

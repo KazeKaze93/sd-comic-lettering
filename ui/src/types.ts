@@ -19,7 +19,7 @@ export interface Options {
 
 /** One thing the server drew, with its place in image pixels. */
 export interface SceneItem {
-  kind: 'bubble' | 'caption' | 'balloon' | 'sfx' | 'region'
+  kind: 'bubble' | 'caption' | 'balloon' | 'sfx' | 'region' | 'path'
   text: string
   size: number
   bubble?: number
@@ -53,6 +53,12 @@ export interface Region {
   shapes: Shape[]
   text: string
   fill: 'none' | 'light' | 'dark'
+  /** Tilt in degrees, counter-clockwise; an effect is tilted at random while this is not set. */
+  rotation?: number
+  /** How large the text or effect is against what the area would give it; 1 when not set. */
+  scale?: number
+  /** The text runs along the brush stroke and bends with it. */
+  follow?: boolean
 }
 
 export type Tool = 'off' | 'lasso' | 'brush'
