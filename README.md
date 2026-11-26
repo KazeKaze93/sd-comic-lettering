@@ -73,7 +73,7 @@ Three fields:
 
 In any field:
 
-- `*word*` makes a word bigger. In a bubble too tight for the bigger word the text is written without the emphasis instead of being moved to the caption.
+- `*word*` makes a word bigger. In a bubble too tight for the bigger word the text is written without the emphasis instead of being moved to the caption. If it still does not fit, its longest words are broken with a hyphen (`UNBE-` / `LIEVABLE`).
 - `♥` (or `<3`), `★`, `✦`, `♪`, `💢`, `💧` are drawn as shapes: heart, star, sparkle, note, anger mark, drop.
 - A word may break after a hyphen (`H-m-m`) when that lets the text be bigger.
 

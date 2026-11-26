@@ -308,8 +308,63 @@ def _fit_bubble(image_height, bubble, text, style, strict):
     paragraphs = parse_text(text, style.uppercase)
     result = _fit_text(image_height, bubble, paragraphs, style, strict)
     if result is None and any(emph for words in paragraphs for _, emph, _ in words):
-        plain = [[(word, False, glue) for word, _, glue in words] for words in paragraphs]
-        result = _fit_text(image_height, bubble, plain, style, strict)
+        paragraphs = [[(word, False, glue) for word, _, glue in words] for words in paragraphs]
+        result = _fit_text(image_height, bubble, paragraphs, style, strict)
+    # Still out: break the longest word with a hyphen, then the two longest, then three.
+    # A broken word can only help when it lands on two lines, so no hyphen is ever
+    # shown inside a line.
+    for count in (1, 2, 3):
+        if result is not None:
+            break
+        broken = _hyphenated(paragraphs, count)
+        if broken is None:
+            break
+        result = _fit_text(image_height, bubble, broken, style, strict)
+    return result
+
+
+VOWELS = u"AEIOUYaeiouy\u0410\u0415\u0401\u0418\u041e\u0423\u042b\u042d\u042e\u042f\u0430\u0435\u0451\u0438\u043e\u0443\u044b\u044d\u044e\u044f"
+
+
+def _split_word(word):
+    """("unbe-", "lievable") for a long word, or None. The break is near the middle, after a
+    vowel that a consonant follows where there is one, with three letters or more on each side."""
+    letters = [i for i, ch in enumerate(word) if ch.isalpha()]
+    if len(letters) < 6 or "-" in word:
+        return None
+    places = letters[3:len(letters) - 2]  # index of the first letter of the second half
+    middle = (letters[0] + letters[-1] + 1) / 2.0
+
+    def badness(i):
+        natural = word[i - 1] in VOWELS and word[i] not in VOWELS
+        return abs(i - middle) + (0.0 if natural else 1.5)
+
+    places = [i for i in places if word[i - 1].isalpha()]
+    if not places:
+        return None
+    at = min(places, key=badness)
+    return word[:at] + "-", word[at:]
+
+
+def _hyphenated(paragraphs, count):
+    """The paragraphs with their `count` longest words broken in two, or None if there are
+    fewer words that can be broken."""
+    words = [(len(word), p, i) for p, para in enumerate(paragraphs) for i, (word, _, glue) in enumerate(para)
+             if not glue and _split_word(word)]
+    words.sort(key=lambda item: -item[0])
+    if len(words) < count:
+        return None
+    chosen = set((p, i) for _, p, i in words[:count])
+    result = []
+    for p, para in enumerate(paragraphs):
+        pieces = []
+        for i, (word, emph, glue) in enumerate(para):
+            if (p, i) in chosen:
+                head, tail = _split_word(word)
+                pieces.extend([(head, emph, glue), (tail, emph, True)])
+            else:
+                pieces.append((word, emph, glue))
+        result.append(pieces)
     return result
 
 
@@ -397,6 +452,12 @@ def _letter_free(image, rgb, text, placement, style, static, pal, energy, precio
             lines = layout(paragraphs, get_fonts(look, size), width * reach)
             block_w, block_h = block_size(lines, size, look)
             if (block_h <= height * 0.36 and block_w <= width * (reach + 0.04)) or size <= 8:
+                if look.rotation or look.arc or look.line_tilt:
+                    # Tilted or bent, the text takes more room than its straight block:
+                    # measure what is really drawn, so the place is chosen for that.
+                    drawn = render_block(lines, size, look, _paint(style, "caption", pal, size, look.font)).getbbox()
+                    if drawn:
+                        block_w, block_h = max(block_w, drawn[2] - drawn[0]), max(block_h, drawn[3] - drawn[1])
                 return lines, size, block_w, block_h
             size = max(8, min(size - 1, int(size * 0.92)))
 
