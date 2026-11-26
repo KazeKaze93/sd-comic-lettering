@@ -1,0 +1,13 @@
+[project]
+name = "sd-comic-lettering"
+description = "Letters generated images: fills the speech bubbles in the art, adds captions and sound effects, and lets you place bubbles of your own in a visual editor."
+version = "1.0.0"
+license = { file = "LICENSE" }
+dependencies = ["numpy", "scipy", "Pillow>=9.2"]
+
+[project.urls]
+Repository = "https://github.com/KazeKaze93/sd-comic-lettering"
+
+[tool.comfy]
+PublisherId = "kaze"
+DisplayName = "Comic Lettering"
