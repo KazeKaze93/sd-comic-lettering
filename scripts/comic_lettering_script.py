@@ -15,6 +15,10 @@ from modules import scripts
 _BASE = scripts.basedir()
 if _BASE not in sys.path:
     sys.path.append(_BASE)
+# The host runs this file again on "Reload UI" but keeps imported packages. Drop ours,
+# so a reload also picks up changes in comic_lettering/ without restarting the process.
+for _name in [n for n in sys.modules if n == "comic_lettering" or n.startswith("comic_lettering.")]:
+    del sys.modules[_name]
 
 from comic_lettering import PLACEMENTS, Style, font_names, letter, list_fonts  # noqa: E402
 from comic_lettering.render import (BUBBLE_SHAPES, BUBBLE_THEMES, EXTRAS, MOODS,  # noqa: E402
