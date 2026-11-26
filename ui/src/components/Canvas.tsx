@@ -101,10 +101,20 @@ function ShapePath({ shape, color }: { shape: Shape; color: string }) {
 function Areas({ slot, drawing }: { slot: Slot; drawing: Shape | null }) {
   const picked = useStore((state) => state.region)
   const nudge = useStore((state) => state.nudge)
+  const hover = useStore((state) => state.hover)
+  const tool = useStore((state) => state.tool)
+  // An area that has its text gets out of the way: its tint shows only while it is being
+  // worked on. One still waiting for a text stays, or it could not be found again.
+  const shown = (region: Region) =>
+    region.id === picked ||
+    region.id === hover ||
+    (nudge !== null && nudge.id === region.id) ||
+    tool === 'eraser' ||
+    (region.kind === 'keepout' ? tool !== 'off' : !region.text.trim())
   const rubbing = drawing && drawing.type === 'erase' ? drawing : null
   return (
     <svg viewBox={`0 0 ${slot.width} ${slot.height}`} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
-      {slot.regions.map((region) => (
+      {slot.regions.filter(shown).map((region) => (
         // What the area covers is its shapes in the order they were drawn: paint, then rub out.
         <g key={region.id} transform={nudge && nudge.id === region.id ? `translate(${nudge.dx} ${nudge.dy})` : undefined}>
           <mask id={`area-${region.id}`} maskUnits="userSpaceOnUse" x={0} y={0} width={slot.width} height={slot.height}>
@@ -505,6 +515,8 @@ function AreaGrip({ region, slot, scale }: { region: Region; slot: Slot; scale: 
       <div
         title="Click to edit this area, drag to move it"
         className="absolute cursor-move touch-none"
+        onPointerEnter={() => useStore.getState().setHover(region.id)}
+        onPointerLeave={() => useStore.getState().setHover(null)}
         style={{
           left: (shown[0] + (ghost ? ghost.dx : 0)) * scale,
           top: (shown[1] + (ghost ? ghost.dy : 0)) * scale,

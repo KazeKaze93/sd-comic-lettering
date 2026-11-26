@@ -157,7 +157,7 @@ function AreasPanel() {
       )}
       <p className="text-[11px] leading-snug text-cl-muted">
         {tool === 'off'
-          ? 'Pick the outline or the brush and draw on the image. Text or an effect is fitted into the area; a keep-out area is left free. Untick Frames and areas at the top to see the result without the tint.'
+          ? 'Pick the outline or the brush and draw on the image. Text or an effect is fitted into the area; a keep-out area is left free. Once an area has its text and is closed with Done, its tint goes; point at it with the arrow to see it again.'
           : tool === 'eraser'
             ? 'The eraser rubs out whatever it passes over.'
             : 'Paint an area: a field for its text opens beside it. Done closes it, and the next thing you paint is a new area.'}

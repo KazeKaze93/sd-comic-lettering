@@ -29,6 +29,8 @@ interface State {
   region: string | null
   /** An area being dragged, and how far, in image pixels: its tint follows before anything is redrawn. */
   nudge: { id: string; dx: number; dy: number } | null
+  /** The area under the pointer, with the arrow: its tint shows while the pointer is on it. */
+  hover: string | null
   busy: boolean
   status: string
   warning: boolean
@@ -55,6 +57,7 @@ interface State {
   setBrush: (brush: number) => void
   pickRegion: (id: string | null) => void
   setNudge: (nudge: State['nudge']) => void
+  setHover: (id: string | null) => void
   /** Move an area, with everything painted in it, and draw again. */
   moveRegion: (id: string, dx: number, dy: number) => void
   /** Add what was just drawn to the picked area, or start a new area with it. */
@@ -144,6 +147,7 @@ export const useStore = create<State>((set, get) => {
     brush: 0.12,
     region: null,
     nudge: null,
+    hover: null,
     busy: false,
     status: '',
     warning: false,
@@ -282,6 +286,7 @@ export const useStore = create<State>((set, get) => {
     setBrush: (brush) => set({ brush }),
     pickRegion: (id) => set({ region: id }),
     setNudge: (nudge) => set({ nudge }),
+    setHover: (id) => set({ hover: id }),
 
     moveRegion: (id, dx, dy) => {
       const slot = get().slots[get().source]
