@@ -1,0 +1,15 @@
+# What the ComfyUI registry archive leaves out (.gitignore syntax). The node needs the Python
+# packages, comfy_web/, fonts/ and the built editor in ui/dist; the rest is for the A1111
+# family or for people working on the code, and stays in the repository.
+
+# Documentation and its screenshots: the README links to them on GitHub.
+docs/
+
+# The A1111 / Forge / reForge side.
+scripts/
+javascript/
+style.css
+
+# The editor's sources and build setup; only the build is served.
+ui/*
+!ui/dist/
