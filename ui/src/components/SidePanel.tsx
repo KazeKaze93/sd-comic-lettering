@@ -39,6 +39,14 @@ const BUBBLES: SliderSpec[] = [
   },
   { key: 'margin', label: 'Gap to the edge', hint: "Space between the text and the bubble's edge", min: 0, max: 0.3, step: 0.01 },
   { key: 'white_threshold', label: 'Darkest bubble fill', hint: 'The darkest fill still taken for a bubble (0-255)', min: 40, max: 255, step: 1 },
+  {
+    key: 'bubble_stroke_width',
+    label: 'Outline width',
+    hint: 'Outline around text on a bubble, as a share of the font size. 0 = none. Also used in your own bubbles and in a caption put in a bubble.',
+    min: 0,
+    max: 0.3,
+    step: 0.01,
+  },
 ]
 const CAPTION: SliderSpec[] = [
   { key: 'free_size', label: 'Font size, %', hint: 'Caption font size, % of image height', min: 1, max: 30, step: 0.5 },
@@ -251,13 +259,13 @@ function Check({ name, label }: { name: string; label: string }) {
   return <Toggle checked={value} onChange={(next) => setSetting(name, next)} label={label} />
 }
 
-function Color({ name, label }: { name: string; label: string }) {
+function Color({ name, label, hint }: { name: string; label: string; hint?: string }) {
   const value = useStore((state) => String(state.settings[name] ?? 'auto'))
   const setSetting = useStore((state) => state.setSetting)
   return (
     <ColorField
       label={label}
-      hint={`${label}: left to the script, or a color of your own`}
+      hint={hint ?? `${label}: left to the script, or a color of your own`}
       value={value}
       onDraft={(next) => setSetting(name, next, false)}
       onCommit={(next) => setSetting(name, next, true)}
@@ -400,6 +408,10 @@ export function SidePanel() {
             <Check name="erase" label="Erase the letters the model drew" />
             <Check name="spill" label="Text too long for a bubble goes to the caption" />
             <Sliders specs={BUBBLES} />
+            {/* The outline's color goes with any Colors preset, so it does not wait for "custom". */}
+            {Number(settings.bubble_stroke_width) > 0 && (
+              <Color name="bubble_stroke_color" label="Outline color" hint="auto: black on a light bubble, white on a dark one" />
+            )}
             {settings.bubble_colors === 'custom' && <Color name="text_color" label="Text color (shared with Caption)" />}
           </>,
         )}
@@ -427,6 +439,9 @@ export function SidePanel() {
         {rest(
           'caption',
           <>
+            {drawn && (
+              <p className="text-[11px] leading-snug text-cl-muted">In a bubble, the caption uses the bubble text outline (Bubbles › More).</p>
+            )}
             <Sliders specs={CAPTION} />
             {settings.caption_colors === 'custom' && (
               <>

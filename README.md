@@ -223,6 +223,8 @@ Bubbles, the caption and sound effects each have a look of their own, set in the
 
 **Colors of your own.** With `Colors` set to `custom`, the section's `More…` shows its colors. Each has a swatch and a switch: `auto` leaves the color to the script, `pick…` opens the system's color picker. The text color is one setting for the bubbles and the caption, and its label says so.
 
+**An outline for bubble text.** Text on a bubble can get an outline: `Outline width` in `Bubbles` › `More…`. It helps colored text stand out from the bubble.
+
 **A mood of your own.** With `Mood` set to `custom`, the sliders appear under the list. There is one set of them: every kind of text set to `custom` follows it.
 
 The caption has a few more lists:
@@ -365,6 +367,8 @@ The settings that are needed less often are behind `More…` in each text sectio
 | `Smallest font, %` | The smallest font still readable, % of image height. Below it a line counts as not fitting. |
 | `Gap to the edge` | The space between the text and the bubble's edge. |
 | `Darkest bubble fill` | The darkest fill still taken for a bubble, 0 to 255; 120 at the start. Raise it if a gray object gets lettered; lower it for dim bubbles. |
+| `Outline width` | An outline around text on a bubble, as a share of the font size. 0, the start value, is no outline. One setting for the bubbles found in the art, bubbles of your own, painted areas with a bubble fill, and a caption put in a bubble. The text is fitted with its outline, so it stays inside the bubble. |
+| `Outline color` | Shown once the width is above 0. `auto` is black on a light bubble and white on a dark one. A color of your own works with any `Colors` preset. |
 | `Text color (shared with Caption)` | With `Colors` set to `custom`. |
 
 **`Caption` › `More…`**
