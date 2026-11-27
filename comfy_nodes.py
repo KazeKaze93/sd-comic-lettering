@@ -53,7 +53,9 @@ class ComicLettering(object):
         fonts = font_names()
         return {"required": {
             "image": ("IMAGE",),
-            "bubbles": ("STRING", {"multiline": True, "default": ""}),
+            "bubbles": ("STRING", {"multiline": True, "default": "", "tooltip": (
+                "One line per bubble. | starts a new line inside a bubble. [6] at the start of a line "
+                "sets the largest font for that bubble, % of image height.")}),
             "caption": ("STRING", {"multiline": True, "default": ""}),
             "sfx": ("STRING", {"multiline": True, "default": ""}),
             "show_numbers": ("BOOLEAN", {"default": False}),
@@ -143,6 +145,7 @@ class ComicLettering(object):
             scene = arrange(picture, bubbles, caption=caption, spill=spill_to_caption, placement=placement,
                             style=style, erase=erase_ai_text, white_threshold=white_threshold,
                             numbers=show_numbers, sfx=sfx, pins=pins, regions=regions)
+            web.log_warnings(scene["info"])  # the node has no status line: the console is where it can say so
             result = draw(picture, scene)
             frames.append(torch.from_numpy(np.asarray(result).astype(np.float32) / 255.0))
         return (torch.stack(frames),)

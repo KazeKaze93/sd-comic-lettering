@@ -94,4 +94,5 @@ class ComicLetteringScript(scripts.Script):
         if not auto["enabled"] or not (auto["text"].strip() or auto["caption"].strip() or auto["sfx"].strip()):
             return
         scene = web.make_scene(pp.image, auto["text"], auto["caption"], False, web.load_settings(), auto["sfx"])
+        web.log_warnings(scene["info"])  # no editor is open in automatic mode: the console is where it can say so
         pp.image = draw(pp.image, scene)

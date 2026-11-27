@@ -4,13 +4,16 @@ import argparse
 from PIL import Image
 
 from . import PLACEMENTS, Style, font_names, letter
+from .web import log_warnings
 
 
 def main():
     parser = argparse.ArgumentParser(prog="comic_lettering")
     parser.add_argument("src")
     parser.add_argument("dst")
-    parser.add_argument("--text", default="", help=r"bubble lines, \n between bubbles")
+    parser.add_argument("--text", default="",
+                        help=r"bubble lines, \n between bubbles; in a line, | is a line break inside the "
+                             r"bubble and [6] at its start is that bubble's largest font, %% of image height")
     parser.add_argument("--caption", default="", help=r"text on the art, \n for a line break")
     parser.add_argument("--sfx", default="", help=r"sound effects, \n between them")
     parser.add_argument("--sfx-font", default="Bangers")
@@ -60,6 +63,7 @@ def main():
                          sfx=args.sfx.replace("\\n", "\n"))
     image.save(args.dst)
     print(info)
+    log_warnings(info)
 
 
 if __name__ == "__main__":

@@ -4,13 +4,13 @@ import copy
 import math
 import random
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 from scipy import ndimage as ndi
 
-from .detect import detect_bubbles, edge_energy, erase_letters, luminance
+from .detect import Bubble, detect_bubbles, edge_energy, erase_letters, luminance
 from .people import person_mask
 from .render import (EXTRAS, MOODS, PALETTES, SYMBOLS, Paint, Style, _solid, block_size, bubble_shape,
                      decorate, get_fonts, layout, layout_shaped, line_heights, parse_color,
@@ -23,6 +23,16 @@ SHAPE_REACH = 0.8    # look for a better shape down to this share of the largest
 MAX_LINES = 8        # more lines than this in one bubble is a wall of text: it goes to the caption
 SAMPLE_TEXT = u"Hello! Привет! 123"
 REPEAT = re.compile(u"^(.*?\\S)\\s*[xX×]\\s*(\\d{1,2})$")  # "THUD x3"
+LINE_BREAK = "|"     # in a line of the bubbles text: a line break inside its bubble
+# "[6]" or "[6.5%]" at the start of a line of the bubbles text: the largest font size tried in
+# its bubble, in the unit of Style.bubble_size (% of image height).
+SIZE_MARK = re.compile(r"^\[\s*(\d+(?:[.,]\d+)?)\s*%?\s*\]\s*")
+LARGEST_SIZE = 30.0  # % of image height: the largest font size any text is given
+FLOOR_SIZE = 0.012   # share of image height: no text is drawn smaller, readable or not
+FLOOR_PX = 8         # the same in pixels, for small images
+SHRINK = 0.93        # the step down from one font size tried to the next
+BREAKS_DROPPED = (u"Bubble %d: the line breaks typed with \"|\" do not fit, "
+                  u"so its text was wrapped automatically.")
 
 
 def letter(image, text="", caption="", spill=True, placement="auto", style=None, erase=True,
@@ -31,7 +41,11 @@ def letter(image, text="", caption="", spill=True, placement="auto", style=None,
     """Letter an image: arrange() decides where everything goes, draw() draws it.
 
     text: one line per bubble, in reading order (top to bottom, left to right). An
-    empty line leaves its bubble alone.
+    empty line leaves its bubble alone. Within a line, "|" is a line break inside the
+    bubble ("Go on,|ask nicely."): the breaks are kept and the font is the largest at which
+    those lines fit. "[6]" at the start of a line is the largest font size tried in that
+    bubble, in % of image height like style.bubble_size, in place of it; such a line is
+    never passed over for being smaller than style.bubble_min_size. See _Line.
     caption: free text drawn straight onto the art, outside the bubbles, or inside a
     bubble drawn for it (style.caption_bubble).
     spill: a line goes into a bubble only if it fits at a readable size
@@ -90,10 +104,11 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
 
     Every item has its text, its font size in pixels and its place in pixels. "lines"
     is the text already broken into lines and measured: draw() takes it as it is.
-    scene["info"] is what letter() returns as info.
+    scene["info"] is what letter() returns as info. info["warnings"] lists, in words, what
+    was asked for and could not be done (line breaks typed by hand that did not fit).
     """
     style = style or Style()
-    info = {"bubbles_found": 0, "bubbles_filled": 0, "free_text": False, "font_sizes": []}
+    info = {"bubbles_found": 0, "bubbles_filled": 0, "free_text": False, "font_sizes": [], "warnings": []}
     items = []
     scene = {"version": 1, "size": [image.width, image.height], "style": dict(vars(style)),
              "white_threshold": int(white_threshold), "rtl": bool(rtl), "erase": bool(erase),
@@ -126,19 +141,24 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     bubble_look = _fill_look(style)
 
     def fit(index, line):
-        return _fit_bubble(height, bubbles[index], line, bubble_look, strict)
+        # type: (int, str) -> Optional[Tuple[Tuple, bool]]
+        return _fit_line(height, bubbles[index], _Line(line), bubble_look, strict)
 
     plans, rest = _assign(lines, len(bubbles), fit)
-    for index, (laid_out, size, cx, cy), line in plans:
+    for index, ((laid_out, size, cx, cy), breaks_kept), line in plans:
         items.append({"kind": "bubble", "bubble": index, "text": line, "lines": _plain(laid_out),
                       "size": int(size), "cx": float(cx), "cy": float(cy)})
         info["font_sizes"].append(size)
         info["bubbles_filled"] += 1
+        if not breaks_kept:
+            info["warnings"].append(BREAKS_DROPPED % (index + 1))
     if erase:
         # Everything below reads the art as it will be once the letters are erased.
         for index, _, _ in plans:
             erase_letters(rgb, bubbles[index])
-    free = (rest if spill and not numbers else []) + ([caption] if caption else [])
+    # A line that goes to the caption keeps its breaks and loses its size: that was the bubble's.
+    spilled = [_Line(line).stacked for line in rest] if spill and not numbers else []
+    free = spilled + ([caption] if caption else [])
     effects = [] if numbers else effects
     automatic = bool(effects or (free and (placement == "auto" or style.caption_bubble != "none")))
     scene["people"] = automatic
@@ -327,7 +347,7 @@ class _Area(object):
 def _region_look(style, filled, pal):
     """Text in a painted region is bubble text; on bare art it is caption text."""
     look = _fill_look(style) if filled else _caption_look(style, pal)
-    look.bubble_size = 30.0  # as large as the area allows
+    look.bubble_size = LARGEST_SIZE  # as large as the area allows
     return look
 
 
@@ -830,12 +850,93 @@ def _fits(lines, size, style, inner, cy, cx):
     return True
 
 
+class _Line(object):
+    """One line of the bubbles text, and what it asks for its own bubble.
+
+    "[6]Go on,|ask nicely." has a size of its own, 6 (% of image height, the unit of
+    Style.bubble_size), and two lines broken by hand. Both marks are optional, and a line
+    without them reads as it always did. Neither character means anything else in a text:
+    "*" marks emphasis, "-" a place to break a word, "<3" a heart, and no mark is drawn for
+    "|", "[" or "]". The size is in square brackets and not in braces because a host that
+    expands "{a|b}" in its text fields would otherwise read a size followed by a break.
+    """
+
+    def __init__(self, raw):
+        # type: (str) -> None
+        self.size = None  # type: Optional[float]
+        body = raw
+        mark = SIZE_MARK.match(raw)
+        if mark:
+            self.size = min(LARGEST_SIZE, float(mark.group(1).replace(",", ".")))
+            body = raw[mark.end():]
+        parts = [part for part in (piece.strip() for piece in body.split(LINE_BREAK)) if part]
+        self.broken = len(parts) > 1       # are there line breaks typed by hand?
+        self.wrapped = " ".join(parts)     # the text for automatic wrapping
+        self.stacked = "\n".join(parts)    # the text with its breaks, as parse_text() reads them
+
+
+def _fit_line(image_height, bubble, line, style, strict):
+    # type: (int, Bubble, _Line, Style, bool) -> Optional[Tuple[Tuple, bool]]
+    """Fit one line of the bubbles text into a bubble: (the fit as _fit_text gives it, were
+    the breaks typed by hand kept), or None if it does not fit this bubble.
+
+    A size of its own replaces style.bubble_size for this bubble. Whoever typed it meant this
+    bubble, so the line is written there however small it has to be, as with spill off.
+    Breaks typed by hand that do not fit are given up for automatic wrapping, and the caller
+    is told, so it can say so.
+    """
+    if line.size is not None:
+        style = copy.copy(style)
+        style.bubble_size = line.size
+        strict = False
+    if line.broken:
+        fixed = _fit_broken(image_height, bubble, parse_text(line.stacked, style.uppercase), style, strict)
+        if fixed is not None:
+            return fixed, True
+    result = _fit_bubble(image_height, bubble, line.wrapped, style, strict)
+    return None if result is None else (result, not line.broken)
+
+
+def _has_emphasis(paragraphs):
+    # type: (List[List[Tuple]]) -> bool
+    return any(emph for words in paragraphs for _, emph, _ in words)
+
+
+def _without_emphasis(paragraphs):
+    # type: (List[List[Tuple]]) -> List[List[Tuple]]
+    return [[(word, False, glue) for word, _, glue in words] for words in paragraphs]
+
+
+def _fit_broken(image_height, bubble, paragraphs, style, strict):
+    # type: (int, Bubble, List[List[Tuple]], Style, bool) -> Optional[Tuple]
+    """The largest size at which text fits a bubble with exactly the line breaks it came with,
+    one line per paragraph: (lines, size, cx, cy) as _fit_text gives it, or None.
+
+    Nothing is weighed here: the breaks are given, so the largest size that fits is the
+    answer, and the sizes are tried pixel by pixel. As in _fit_bubble, emphasis is given up
+    before the text is.
+    """
+    if strict and len(paragraphs) > MAX_LINES:
+        return None
+    inner, cy, cx, _ = _inner(bubble, style)
+    smallest, largest = _size_range(image_height, style, strict)
+    attempts = [paragraphs]
+    if _has_emphasis(paragraphs):
+        attempts.append(_without_emphasis(paragraphs))
+    for attempt in attempts:
+        for size in range(largest, smallest - 1, -1):
+            lines = layout(attempt, get_fonts(style, size), float("inf"))
+            if _fits(lines, size, style, inner, cy, cx):
+                return lines, size, bubble.x0 + cx, bubble.y0 + cy
+    return None
+
+
 def _fit_bubble(image_height, bubble, text, style, strict):
     """_fit_text, and when *emphasis* is all that keeps the text out of the bubble, without it."""
     paragraphs = parse_text(text, style.uppercase)
     result = _fit_text(image_height, bubble, paragraphs, style, strict)
-    if result is None and any(emph for words in paragraphs for _, emph, _ in words):
-        paragraphs = [[(word, False, glue) for word, _, glue in words] for words in paragraphs]
+    if result is None and _has_emphasis(paragraphs):
+        paragraphs = _without_emphasis(paragraphs)
         result = _fit_text(image_height, bubble, paragraphs, style, strict)
     # Still out: break the longest word with a hyphen, then the two longest, then three.
     # A broken word can only help when it lands on two lines, so no hyphen is ever
@@ -895,6 +996,32 @@ def _hyphenated(paragraphs, count):
     return result
 
 
+def _inner(bubble, style):
+    # type: (Bubble, Style) -> Tuple[np.ndarray, float, float, int]
+    """Where text may stand in a bubble: (the mask of its body without the gap to the edge,
+    the mask's middle as cy and cx, the width of the body), all in the bubble's own box."""
+    body = bubble.body
+    ys, xs = np.nonzero(body)
+    body_h = ys.max() - ys.min() + 1
+    body_w = xs.max() - xs.min() + 1
+    margin = max(2.0, style.margin * min(body_h, body_w))
+    inner = ndi.distance_transform_edt(np.pad(body, 1))[1:-1, 1:-1] > margin
+    if not inner.any():
+        inner = body
+    cy, cx = ndi.center_of_mass(inner)
+    return inner, cy, cx, body_w
+
+
+def _size_range(image_height, style, strict):
+    # type: (int, Style, bool) -> Tuple[int, int]
+    """(smallest, largest) font size in pixels to try in a bubble. strict: nothing below the
+    readable minimum, style.bubble_min_size."""
+    smallest = max(FLOOR_PX, int(FLOOR_SIZE * image_height))
+    if strict:
+        smallest = max(smallest, int(round(style.bubble_min_size / 100.0 * image_height)))
+    return smallest, max(smallest, int(style.bubble_size / 100.0 * image_height))
+
+
 def _fit_text(image_height, bubble, paragraphs, style, strict):
     """Largest layout of text that fits the bubble: (lines, size, cx, cy).
 
@@ -906,19 +1033,8 @@ def _fit_text(image_height, bubble, paragraphs, style, strict):
     strict: return None when it only fits below the readable minimum. Otherwise fall
     back to the smallest size even if it overflows.
     """
-    body = bubble.body
-    ys, xs = np.nonzero(body)
-    body_h = ys.max() - ys.min() + 1
-    body_w = xs.max() - xs.min() + 1
-    margin = max(2.0, style.margin * min(body_h, body_w))
-    inner = ndi.distance_transform_edt(np.pad(body, 1))[1:-1, 1:-1] > margin
-    if not inner.any():
-        inner = body
-    cy, cx = ndi.center_of_mass(inner)
-    smallest = max(8, int(0.012 * image_height))
-    if strict:
-        smallest = max(smallest, int(round(style.bubble_min_size / 100.0 * image_height)))
-    size = max(smallest, int(style.bubble_size / 100.0 * image_height))
+    inner, cy, cx, body_w = _inner(bubble, style)
+    smallest, size = _size_range(image_height, style, strict)
     largest = None   # the largest size at which anything fits
     best = None      # (quality, lines, size)
     while True:
@@ -937,13 +1053,13 @@ def _fit_text(image_height, bubble, paragraphs, style, strict):
             if best is None or quality > best[0]:
                 best = (quality, lines, size)
         # Keep looking a little below the largest fit: a better shape may be worth it.
-        if largest is not None and (size <= smallest or size * 0.93 < largest * SHAPE_REACH):
+        if largest is not None and (size <= smallest or size * SHRINK < largest * SHAPE_REACH):
             return best[1], best[2], bubble.x0 + cx, bubble.y0 + cy
         if size <= smallest:
             if strict:
                 return None
             return layout(paragraphs, fonts, body_w * 0.82), size, bubble.x0 + cx, bubble.y0 + cy
-        size = max(smallest, min(size - 1, int(size * 0.93)))
+        size = max(smallest, min(size - 1, int(size * SHRINK)))
 
 
 # ---------------------------------------------------------------- caption

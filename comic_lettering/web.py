@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PIL import Image, PngImagePlugin
 
@@ -234,15 +234,25 @@ def make_scene(image, text, caption, numbers, s, sfx="", pins=None, regions=None
 
 
 def describe(info):
+    # type: (Dict) -> Tuple[str, bool]
     """What was done with an image: (message, is it a warning)."""
     message = "Bubbles found: %d, filled: %d%s%s." % (
         info.get("bubbles_found", 0), info.get("bubbles_filled", 0),
         ", plus a caption" if info.get("free_text") else "",
         ", sound effects: %d" % info["sfx"] if info.get("sfx") else "")
+    notes = list(info.get("warnings") or [])  # what the core could not do as asked, in its words
     if info.get("characters") is False:
-        return (message + " Character detection is off (no ultralytics or no person_yolov8*-seg.pt"
-                " found), so text may land on a character.", True)
-    return message, False
+        notes.append("Character detection is off (no ultralytics or no person_yolov8*-seg.pt"
+                     " found), so text may land on a character.")
+    return " ".join([message] + notes), bool(notes)
+
+
+def log_warnings(info):
+    # type: (Dict) -> None
+    """Put the core's warnings on the server's error stream, for the hosts that letter with
+    no page to show them on: automatic mode, the ComfyUI node, the command line."""
+    for note in info.get("warnings") or []:
+        sys.stderr.write("comic_lettering: %s\n" % note)
 
 
 # ---------------------------------------------------------------- sessions
@@ -281,7 +291,9 @@ def render_session(session, text, caption, sfx, numbers, settings, pins=None, re
         session["png"].pop("result", None)
     message, warning = describe(scene["info"])
     if scene["info"].get("regions"):
-        message = message.rstrip(".") + ", areas filled: %d." % scene["info"]["regions"]
+        # The count belongs to the first sentence; whatever describe() added comes after it.
+        head, dot, notes = message.partition(".")
+        message = "%s, areas filled: %d%s%s" % (head, scene["info"]["regions"], dot, notes)
     if scene.get("empty"):
         message, warning = "No text: this is the original image.", False
     return {"version": session["version"], "status": message, "warning": warning, "empty": bool(scene.get("empty")),
