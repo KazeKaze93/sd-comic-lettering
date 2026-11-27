@@ -83,7 +83,7 @@ class Style(object):
                  caption_mood="calm", sfx_mood="shout", caption_extras="none",
                  sfx_extras="none", caption_bubble="none", caption_bubble_theme="light",
                  caption_tail="none", size_jitter=0.0, line_tilt=0.0, line_shift=0.0,
-                 rough=0.0):
+                 rough=0.0, bubble_stroke_width=0.0, bubble_stroke_color="auto"):
         self.font = font
         self.uppercase = uppercase
         self.text_color = text_color      # "auto" or "#RRGGBB"; used by the "custom" colors
@@ -124,6 +124,8 @@ class Style(object):
         self.line_tilt = line_tilt        # each line tilted by up to this many degrees
         self.line_shift = line_shift      # each line pushed sideways, fraction of the font size
         self.rough = rough                # 0..1 ragged, angular letter edges
+        self.bubble_stroke_width = bubble_stroke_width  # fraction of the font size; text on a bubble fill; 0 = no outline
+        self.bubble_stroke_color = bubble_stroke_color  # "auto" or "#RRGGBB"; with any colors, not only "custom"
 
 
 class Paint(object):

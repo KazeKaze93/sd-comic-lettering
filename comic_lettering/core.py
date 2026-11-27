@@ -123,7 +123,7 @@ def arrange(image, text="", caption="", spill=True, placement="auto", style=None
     accent = None
     if "from the art" in (style.bubble_colors, style.caption_colors, style.sfx_colors):
         accent = accent_palette(rgb)
-    bubble_look = voice(style, "bubble")
+    bubble_look = _fill_look(style)
 
     def fit(index, line):
         return _fit_bubble(height, bubbles[index], line, bubble_look, strict)
@@ -212,10 +212,11 @@ def draw(image, scene):
         for item in spoken:
             erase_letters(rgb, bubbles[item["bubble"]])
     out = Image.fromarray(rgb)
-    bubble_look = voice(style, "bubble")
+    bubble_look = _fill_look(style)
     for item in spoken:
         ink = _bubble_ink(style, bubbles[item["bubble"]], palette(style, "bubble", accent))
-        out = paste_centered(out, render_block(_lines(item), item["size"], bubble_look, Paint(ink)),
+        paint = _fill_paint(style, ink, item["size"])
+        out = paste_centered(out, render_block(_lines(item), item["size"], bubble_look, paint),
                              item["cx"], item["cy"])
     # The marks around a text keep off the same things the placement kept off.
     static, precious, _ = _obstacles(rgb, bubbles, scene["people"])
@@ -325,7 +326,7 @@ class _Area(object):
 
 def _region_look(style, filled, pal):
     """Text in a painted region is bubble text; on bare art it is caption text."""
-    look = voice(style, "bubble") if filled else _caption_look(style, pal)
+    look = _fill_look(style) if filled else _caption_look(style, pal)
     look.bubble_size = 30.0  # as large as the area allows
     return look
 
@@ -406,7 +407,7 @@ def _along_look(style, voice_name, pal):
         look.opacity = style.sfx_opacity
         look.line_spacing += 1.2 * (0.14 + (0.07 if pal and pal.get("outer") else 0.0))
     elif voice_name == "bubble":
-        look = voice(style, "bubble")
+        look = _fill_look(style)
     else:
         look = _caption_look(style, pal)
     look.rotation = 0.0
@@ -428,9 +429,10 @@ def _place_along(area, line, number, style, accent):
     length = float(np.hypot(*np.diff(points, axis=0).T).sum())
     size = max(8, int(0.6 * wide * (area.get("scale") or 1.0)))
     lines = layout(paragraphs, get_fonts(look, size), 1e9)
-    if lines[0][1] > 0.94 * length and size > 8:
+    long = lines[0][1] + 2 * _outline_room(look, size)  # an outline, if any, counts at both ends
+    if long > 0.94 * length and size > 8:
         # Too long for the stroke at this size: as large as fits its length.
-        size = max(8, int(size * 0.94 * length / lines[0][1]))
+        size = max(8, int(size * 0.94 * length / long))
         lines = layout(paragraphs, get_fonts(look, size), 1e9)
     return {"kind": "path", "id": "region:%s" % area["id"], "region": number, "text": area["text"],
             "lines": _plain(lines), "size": int(size), "voice": voice_name, "fill": area["fill"],
@@ -446,7 +448,8 @@ def _draw_along(image, item, mask, style, accent):
         pal = palette(style, "bubble", accent)
         dark = item["fill"] == "dark"
         plain = (255, 255, 255) if dark else (0, 0, 0)
-        paint = Paint((pal["fill"] if dark else pal["ink"]) if pal else _own_color(style, "bubble", style.text_color, plain))
+        ink = (pal["fill"] if dark else pal["ink"]) if pal else _own_color(style, "bubble", style.text_color, plain)
+        paint = _fill_paint(style, ink, size)
         look = _along_look(style, "bubble", None)
     else:
         pal = palette(style, "sfx" if voice_name == "sfx" else "caption", accent)
@@ -514,7 +517,8 @@ def _draw_region(image, item, mask, style, accent):
     ink = (pal["fill"] if dark else pal["ink"]) if pal else _own_color(style, "bubble", style.text_color, plain)
     look = _region_look(style, True, None)
     look.rotation = item.get("rotation", look.rotation)
-    return paste_centered(image, render_block(_lines(item), size, look, Paint(ink)), item["cx"], item["cy"])
+    return paste_centered(image, render_block(_lines(item), size, look, _fill_paint(style, ink, size)),
+                          item["cx"], item["cy"])
 
 
 def _sfx_units(word):
@@ -620,6 +624,48 @@ def voice(style, which):
         for key, value in mood.items():
             setattr(look, key, value)
     return look
+
+
+def _outline_px(wide, size):
+    """An outline width in pixels: `wide` is a fraction of the font size; none for 0 or less."""
+    return max(1, int(round(size * wide))) if wide > 0 else 0
+
+
+def _outline_room(look, size):
+    """The pixels to keep free around text of this look for its outline; 0 unless _fill_look set it."""
+    return _outline_px(getattr(look, "outline_room", 0.0), size)
+
+
+def _fill_look(style, which="bubble"):
+    """The style of text that sits on a bubble fill: a bubble found in the art, a painted
+    area, a balloon drawn for the caption (which="caption").
+
+    An outline (style.bubble_stroke_width) makes the letters larger than the fitting
+    measures them. The room for it is reserved here, once, for everything that fits or
+    measures such text: the lines stand further apart, as the caption's do, and
+    look.outline_room tells the fitting to keep that much clear around each line, so the
+    outline stays inside the bubble. Without an outline the look is the plain voice.
+    """
+    look = voice(style, which)
+    wide = style.bubble_stroke_width
+    if wide > 0:
+        look.line_spacing += 1.2 * wide
+        look.outline_room = wide  # fraction of the font size, see _outline_room
+    return look
+
+
+def _fill_paint(style, ink, size):
+    """The colors of text on a bubble fill: its ink and, when asked for, an outline.
+
+    The outline color is taken as it is with any color preset (it is not one of the
+    "custom" color fields, so no _own_color here); "auto" is black round a light ink and
+    white round a dark one, the rule of the caption's outline.
+    """
+    stroke_px = _outline_px(style.bubble_stroke_width, size)
+    if not stroke_px:
+        return Paint(ink)
+    auto = (0, 0, 0) if _brightness(ink) > 128 else (255, 255, 255)
+    return Paint(ink, parse_color(style.bubble_stroke_color, auto), stroke_px)
 
 
 def palette(style, which, accent):
@@ -760,6 +806,7 @@ def font_sample(style, text="", size=(640, 110)):
 
 def _fits(lines, size, style, inner, cy, cx):
     heights = line_heights(lines, size, style)
+    room = _outline_room(style, size)  # an outline reaches this far beyond the letters, on every side
     top = cy - sum(heights) / 2.0
     for index, (words, width) in enumerate(lines):
         line_top = top
@@ -767,10 +814,10 @@ def _fits(lines, size, style, inner, cy, cx):
         if not words:
             continue
         ink = int(heights[index] / style.line_spacing * 0.78)  # capitals, not the full em box
-        y0 = int(line_top + (heights[index] - ink) / 2.0)
-        y1 = y0 + ink
-        x0 = int(cx - width / 2.0)
-        x1 = int(math.ceil(cx + width / 2.0))
+        y0 = int(line_top + (heights[index] - ink) / 2.0) - room
+        y1 = y0 + ink + 2 * room
+        x0 = int(cx - width / 2.0) - room
+        x1 = int(math.ceil(cx + width / 2.0)) + room
         if y0 < 0 or x0 < 0 or y1 > inner.shape[0] or x1 > inner.shape[1]:
             return False
         if inner[y0:y1, x0:x1].mean() < 0.97:
@@ -1057,6 +1104,7 @@ def _drawn_bubble(paragraphs, look, style, size, width, height, tall=False):
 def _balloon_shape(lines, size, look, style):
     """The bubble drawn around laid-out text, trimmed to what is drawn: (fill, outline, text x, text y)."""
     block_w, block_h = block_size(lines, size, look)
+    block_w += 2 * _outline_room(look, size)  # the bubble is drawn around the letters with their outline
     fill_mask, outline, (bx, by) = bubble_shape(style.caption_bubble, block_w, block_h, size,
                                                 style.caption_tail, style.seed)
     # The bubble is placed by what is drawn, tail and spikes included.
@@ -1071,7 +1119,7 @@ def _place_balloon(rgb, text, placement, style, static, energy, precious=None, p
     """The scene item for a caption inside a bubble drawn for it."""
     pin = pin or {}
     height, width = rgb.shape[:2]
-    look = voice(style, "caption")
+    look = _fill_look(style, "caption")
     paragraphs = parse_text(text, style.uppercase)
     full = pin["size"] if "size" in pin else max(8, int(style.free_size / 100.0 * height))
     sized = "size" in pin  # a size set by hand is kept: no smaller one is tried
@@ -1124,7 +1172,7 @@ def _place_balloon(rgb, text, placement, style, static, energy, precious=None, p
 
 
 def _draw_balloon(image, item, style, pal, precious):
-    look = voice(style, "caption")
+    look = _fill_look(style, "caption")
     lines, size, x, y = _lines(item), item["size"], item["x"], item["y"]
     fill_mask, outline, bx, by = _balloon_shape(lines, size, look, style)
     if style.caption_bubble_theme == "dark":
@@ -1140,7 +1188,7 @@ def _draw_balloon(image, item, style, pal, precious):
     marks = Paint(pal["fill"] if pal else (255, 255, 255), line if style.caption_bubble_theme != "dark" else body)
     shown = decorate(bubble, EXTRAS.get(style.caption_extras), size, marks, style.seed, precious, center)
     image = paste_centered(image, shown, center[0], center[1])
-    return paste_centered(image, render_block(lines, size, look, Paint(ink)), x + bx, y + by)
+    return paste_centered(image, render_block(lines, size, look, _fill_paint(style, ink, size)), x + bx, y + by)
 
 
 # ---------------------------------------------------------------- sound effects
