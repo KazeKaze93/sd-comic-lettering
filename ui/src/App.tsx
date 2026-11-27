@@ -151,7 +151,10 @@ function StatusLine() {
   return (
     <footer className="flex h-8 shrink-0 items-center gap-2 border-t border-cl-border bg-cl-surface px-3 text-xs" aria-live="polite">
       {text && <span className={`h-2 w-2 shrink-0 rounded-full ${tone} ${busy && !error ? 'animate-pulse' : ''}`} />}
-      <span className={`min-w-0 truncate ${error ? 'text-cl-danger' : 'text-cl-muted'}`}>{text}</span>
+      {/* A warning can be longer than the line: pointing at it shows it whole. */}
+      <span className={`min-w-0 truncate ${error ? 'text-cl-danger' : 'text-cl-muted'}`} title={text || undefined}>
+        {text}
+      </span>
       {pinned > 0 && (
         <span className="ml-auto shrink-0 whitespace-nowrap text-cl-muted">
           {pinned} placed by hand ·{' '}

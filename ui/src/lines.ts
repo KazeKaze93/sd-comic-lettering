@@ -8,8 +8,10 @@ export type LineFate =
   | { kind: 'none' } // it went nowhere: no bubble took it and nothing spills, or an empty line with no bubble left
   | { kind: 'pending'; number: number } // the text has changed since the image was drawn: a guess, line by line
 
-/** The lines of the Bubbles field as the core reads them (comic_lettering/core.py, arrange(),
- * lines 103-105): split at line breaks, each one trimmed, the empty ones at the end dropped. */
+/** The lines of the Bubbles field as the core reads them (comic_lettering/core.py, arrange()):
+ * split at line breaks, each one trimmed, the empty ones at the end dropped. What a line asks
+ * for its own bubble ("|" for a break inside it, "[6]" for its size) stays in the line: the
+ * core reads it, and the scene gives the line back whole as the item's text. */
 export function bubbleLines(text: string): string[] {
   const lines = text
     .replace(/\r/g, '')

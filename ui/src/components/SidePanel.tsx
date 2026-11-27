@@ -395,6 +395,9 @@ export function SidePanel() {
               areas.current.text = element
             }}
           />
+          <p className="mt-1 text-[11px] leading-snug text-cl-muted">
+            <code>|</code> starts a new line inside a bubble. <code>[6]</code> at the start of a line sets the largest font for that bubble, % of image height.
+          </p>
         </div>
         <div className="grid grid-cols-2 gap-2">
           {list('font', 'Font', options.fonts, true)}
