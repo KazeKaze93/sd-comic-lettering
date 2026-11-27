@@ -215,7 +215,7 @@ def draw(image, scene):
     bubble_look = _fill_look(style)
     for item in spoken:
         ink = _bubble_ink(style, bubbles[item["bubble"]], palette(style, "bubble", accent))
-        paint = _fill_paint(style, ink, item["size"])
+        paint = _fill_paint(style, ink, item["size"], _brightness(bubbles[item["bubble"]].color) > 128)
         out = paste_centered(out, render_block(_lines(item), item["size"], bubble_look, paint),
                              item["cx"], item["cy"])
     # The marks around a text keep off the same things the placement kept off.
@@ -449,7 +449,7 @@ def _draw_along(image, item, mask, style, accent):
         dark = item["fill"] == "dark"
         plain = (255, 255, 255) if dark else (0, 0, 0)
         ink = (pal["fill"] if dark else pal["ink"]) if pal else _own_color(style, "bubble", style.text_color, plain)
-        paint = _fill_paint(style, ink, size)
+        paint = _fill_paint(style, ink, size, not dark)
         look = _along_look(style, "bubble", None)
     else:
         pal = palette(style, "sfx" if voice_name == "sfx" else "caption", accent)
@@ -517,7 +517,7 @@ def _draw_region(image, item, mask, style, accent):
     ink = (pal["fill"] if dark else pal["ink"]) if pal else _own_color(style, "bubble", style.text_color, plain)
     look = _region_look(style, True, None)
     look.rotation = item.get("rotation", look.rotation)
-    return paste_centered(image, render_block(_lines(item), size, look, _fill_paint(style, ink, size)),
+    return paste_centered(image, render_block(_lines(item), size, look, _fill_paint(style, ink, size, not dark)),
                           item["cx"], item["cy"])
 
 
@@ -654,17 +654,22 @@ def _fill_look(style, which="bubble"):
     return look
 
 
-def _fill_paint(style, ink, size):
+def _fill_paint(style, ink, size, fill_light):
     """The colors of text on a bubble fill: its ink and, when asked for, an outline.
 
+    fill_light: is the fill the text sits on a light one?
+
     The outline color is taken as it is with any color preset (it is not one of the
-    "custom" color fields, so no _own_color here); "auto" is black round a light ink and
-    white round a dark one, the rule of the caption's outline.
+    "custom" color fields, so no _own_color here). "auto" goes by the fill, not by the
+    ink: black on a light fill, white on a dark one. The ink is already chosen against
+    the fill (dark on light, light on dark), so an outline chosen against the ink would
+    have the color of the fill and vanish into it; the outline is there to part the
+    letters from the fill. Black ink on a light fill only gets bolder letters from it.
     """
     stroke_px = _outline_px(style.bubble_stroke_width, size)
     if not stroke_px:
         return Paint(ink)
-    auto = (0, 0, 0) if _brightness(ink) > 128 else (255, 255, 255)
+    auto = (0, 0, 0) if fill_light else (255, 255, 255)
     return Paint(ink, parse_color(style.bubble_stroke_color, auto), stroke_px)
 
 
@@ -1188,7 +1193,8 @@ def _draw_balloon(image, item, style, pal, precious):
     marks = Paint(pal["fill"] if pal else (255, 255, 255), line if style.caption_bubble_theme != "dark" else body)
     shown = decorate(bubble, EXTRAS.get(style.caption_extras), size, marks, style.seed, precious, center)
     image = paste_centered(image, shown, center[0], center[1])
-    return paste_centered(image, render_block(lines, size, look, _fill_paint(style, ink, size)), x + bx, y + by)
+    paint = _fill_paint(style, ink, size, style.caption_bubble_theme != "dark")
+    return paste_centered(image, render_block(lines, size, look, paint), x + bx, y + by)
 
 
 # ---------------------------------------------------------------- sound effects
