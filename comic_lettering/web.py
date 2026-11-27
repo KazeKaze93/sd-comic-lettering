@@ -101,6 +101,7 @@ DEFAULTS = {
     "placement": "auto", "font": "", "spill": True, "uppercase": True, "erase": True,
     "bubble_size": 9.0, "bubble_min_size": 1.5, "free_size": 5.5, "text_color": "auto",
     "stroke_color": "auto", "stroke_width": 0.12, "shadow": 0.5, "jitter": 0.3, "arc": 0.0,
+    "bubble_stroke_color": "auto", "bubble_stroke_width": 0.0,  # 0: no outline, the look of before
     "rotation": 0.0, "soften": 0.4, "grain": 0.0, "opacity": 1.0, "margin": 0.08,
     "white_threshold": 120, "seed": 0,
     "sfx_font": "", "sfx_size": 7.0, "sfx_color": "auto", "sfx_tilt": 15.0, "sfx_opacity": 0.95,

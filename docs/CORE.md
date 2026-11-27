@@ -84,6 +84,7 @@ In any text, `*word*` makes a word bigger (by `EMPHASIS_SCALE`, 1.3), and the ch
 | `stroke_width`, `shadow` | `0.12`, `0.5` | Caption outline (fraction of the font size) and shadow strength. |
 | `sfx_size`, `sfx_tilt`, `sfx_opacity` | `7.0`, `15.0`, `0.95` | Effect size (% of height), largest random tilt in degrees, opacity. |
 | `text_color`, `stroke_color`, `sfx_color` | `auto` | `auto` or `#RRGGBB`. Used by the `custom` palette. |
+| `bubble_stroke_width`, `bubble_stroke_color` | `0.0`, `auto` | Outline of text on a bubble fill: bubbles found in the art, filled areas, a caption put in a bubble. Not text on the art. Width is a fraction of the font size, `0` for none; the fitting keeps room for it, so it stays inside the bubble. Color is `auto` or `#RRGGBB`, with any palette: `auto` is black on a light fill, white on a dark one. |
 | `jitter`, `size_jitter`, `rough`, `line_tilt`, `line_shift`, `line_spacing` | `0.3`, `0`, `0`, `0`, `0`, `1.08` | The `custom` mood. |
 | `arc`, `rotation` | `0`, `0` | Bend (-1..1) and tilt (degrees) of a whole block. |
 | `soften`, `grain`, `opacity` | `0.4`, `0`, `1.0` | Blur in pixels, uneven ink, opacity. |

@@ -186,6 +186,7 @@ The look as the page and the server exchange it. Keys and defaults are `web.DEFA
 | Lists | `bubble_colors`, `caption_colors`, `sfx_colors`, `bubble_mood`, `caption_mood`, `sfx_mood`, `caption_extras`, `sfx_extras`, `caption_bubble`, `caption_bubble_theme`, `caption_tail` |
 | Numbers | every numeric `Style` option, see [CORE.md](CORE.md#style) |
 | Colors | `text_color`, `stroke_color`, `sfx_color` |
+| Outline of text on a bubble fill | `bubble_stroke_width`: a fraction of the font size, `0` (the default) for no outline. `bubble_stroke_color`: `"auto"` or `#RRGGBB`; `auto` is black on a light bubble fill and white on a dark one |
 | Switches | `uppercase` |
 
 Everything except the four arguments of `arrange()` is copied onto a `Style` by `make_style()`.
