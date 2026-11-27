@@ -146,7 +146,7 @@ Gradio is used for exactly two things: the hidden "to gallery" round trip and th
 
 The page's files are served by a route of their own, `/comic_lettering/static/`, and are deliberately **not** inside `WEB_DIRECTORY`: ComfyUI loads every `.js` file in that folder as an extension script and would run the editor's bundle on its own page.
 
-**`comfy_nodes.py`** defines `ComicLettering`: 49 required inputs (the three texts and the look), the optional `layout` string and the hidden `unique_id`. On each run it:
+**`comfy_nodes.py`** defines `ComicLettering`: 49 required inputs (the three texts and the look), the optional `layout` string, two more optional inputs after it (`bubble_stroke_width` and `bubble_stroke_color`, the outline of text on a bubble fill) and the hidden `unique_id`. A saved workflow keeps widget values by position, so a new input goes at the very end, after `layout`: put before it, it would take an old workflow's layout string as its own value. On each run it:
 
 1. stores the first frame under the tab name `node:<unique_id>`, so the editor can fetch it;
 2. reads pins and regions from `layout`;

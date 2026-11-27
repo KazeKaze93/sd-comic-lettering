@@ -104,6 +104,14 @@ class ComicLettering(object):
         }, "optional": {
             # Written by the editor (the Open editor button): what was placed and drawn by hand.
             "layout": ("STRING", {"default": "", "multiline": False}),
+            # Outline of text on a bubble fill. Here, after layout, and not among the required
+            # inputs: a saved workflow keeps its widget values by position, and layout comes
+            # right after the required ones. Anything put before it would take the layout
+            # string of an old workflow as its own value, and the hand placement and the areas
+            # would be lost. New inputs are added at the end: old workflows keep every value
+            # and the new widgets take their defaults.
+            "bubble_stroke_width": num(0.0, 0.0, 0.3, 0.01),
+            "bubble_stroke_color": text(),
         }, "hidden": {"unique_id": "UNIQUE_ID"}}
 
     RETURN_TYPES = ("IMAGE",)
