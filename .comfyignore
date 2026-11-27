@@ -5,6 +5,9 @@
 # Documentation and its screenshots: the README links to them on GitHub.
 docs/
 
+# The tests of the core and their reference pictures.
+tests/
+
 # The A1111 / Forge / reForge side.
 scripts/
 javascript/

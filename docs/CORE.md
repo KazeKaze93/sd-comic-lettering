@@ -49,7 +49,7 @@ Everything exported: `letter`, `arrange`, `draw`, `Style`, `Paint`, `font_names`
 
 | Argument | Meaning |
 |---|---|
-| `text` | One line per bubble found in the art, in reading order. An empty line leaves its bubble alone. |
+| `text` | One line per bubble found in the art, in reading order. An empty line leaves its bubble alone. A line may carry two marks for its own bubble: `\|` for a line break inside it and `[6]` at its start for its largest font size. See [Marks in a bubble line](#marks-in-a-bubble-line). |
 | `caption` | Free text, drawn on the art or in a bubble drawn for it (`style.caption_bubble`). |
 | `sfx` | Sound effects, one per line. `"WORD x5"` stacks the word five times. |
 | `spill` | `True`: a line that does not fit its bubble at a readable size is added to the caption. `False`: always write into the bubbles, however small, and drop lines left over. |
@@ -110,9 +110,12 @@ A dict of plain values: it survives `json.dumps` and back.
   "regions": [...],               # the regions, cleaned
   "items": [...],                 # what is drawn, in order
   "info": {"bubbles_found": 2, "bubbles_filled": 2, "free_text": True,
-           "font_sizes": [64, 50], "characters": True, "sfx": 1, "regions": 3},
+           "font_sizes": [64, 50], "characters": True, "sfx": 1, "regions": 3,
+           "warnings": []},
 }
 ```
+
+`info["warnings"]` is always there: a list of sentences, each saying what was asked for and could not be done. Empty when all went as asked. The hosts show them as they are: the editor in its status line, everything else on the error stream (`web.log_warnings`).
 
 `info["characters"]` is present when something was placed automatically: `True` when a character mask was used, `False` when none was available.
 
@@ -228,6 +231,21 @@ For one line of text and one bubble (`_fit_bubble`, `_fit_text`):
 3. If nothing fits above `bubble_min_size` in `MAX_LINES` (8) lines: drop the emphasis, then hyphenate the longest words (`_split_word`: near the middle, after a vowel that a consonant follows where there is one, three letters or more on each side).
 4. Still nothing: with `spill`, the line goes to the caption and the bubble stays free for the next line (`_assign`).
 
+### Marks in a bubble line
+
+A line of `text` is read by `_Line` before it is fitted (`_fit_line`). The two marks live only there, in the core, so every host has them: the editor, automatic mode, the ComfyUI node and the command line pass the text through untouched. The scene item keeps the line as it was typed in `text`, marks included.
+
+| Mark | Constant | Meaning |
+|---|---|---|
+| `\|` | `LINE_BREAK` | A line break inside the bubble. Empty pieces are dropped, so `a\|\|b` is two lines. |
+| `[6]`, `[6.5%]` at the start | `SIZE_MARK` | The largest font size tried in this bubble, in the unit of `Style.bubble_size` (% of image height), in place of it. Capped at `LARGEST_SIZE` (30). |
+
+Neither character means anything else in a text: `*` is emphasis, `-` a place to break a word, `<3` a heart, and none of the marks in `render.SYMBOLS` is `|`, `[` or `]`. The size is in square brackets and not in braces, so a host that expands `{a|b}` in its text fields cannot take a size followed by a break for one of those.
+
+**Breaks typed by hand** (`_fit_broken`). The text becomes one paragraph per piece and is laid out with one line per paragraph, never wrapped further. The sizes go down pixel by pixel from the largest to the smallest allowed and the first that fits wins: with the breaks given there is no shape to weigh. Emphasis is dropped before the breaks are. If nothing fits, the breaks are given up: the pieces are joined with spaces and fitted as any other line (steps 1 to 4 above), and `BREAKS_DROPPED` with the bubble's number goes into `info["warnings"]`. A line that then goes to the caption keeps its breaks there.
+
+**A size of its own.** The line is fitted with a copy of the style whose `bubble_size` is the given one, and with `strict` off: whoever typed the size meant this bubble, so the line is written there however small, as with `spill=False`, and `bubble_min_size` does not send it to the caption. The smallest size is then the floor of all text (`FLOOR_SIZE`, 1.2% of image height, at least `FLOOR_PX`).
+
 ## How free text finds its place
 
 Three masks drive every automatic placement:
@@ -278,10 +296,10 @@ From the repository folder:
 python -m comic_lettering in.png out.png --text "Hi!\nYo." --caption "Later..." --sfx "THUD\nBAM"
 ```
 
-`\n` separates bubbles, caption lines and effects. Common options have flags (`--font`, `--placement`, `--no-erase`, `--no-spill`, `--numbers`, `--white-threshold`, the sizes); any other `Style` option goes through `--opt`:
+`\n` separates bubbles, caption lines and effects; within a bubble's line, `|` is a line break and `[6]` at its start its size (`--text "Hi!\n[4]Go on,|ask nicely."`, in quotes, or the shell takes `|` for a pipe). Common options have flags (`--font`, `--placement`, `--no-erase`, `--no-spill`, `--numbers`, `--white-threshold`, the sizes); any other `Style` option goes through `--opt`:
 
 ```
 python -m comic_lettering in.png out.png --caption "So cool" --opt caption_colors=pink --opt caption_bubble=cloud --opt caption_tail=down-left
 ```
 
-The command prints the scene's `info`.
+The command prints the scene's `info`, and its warnings once more on the error stream.

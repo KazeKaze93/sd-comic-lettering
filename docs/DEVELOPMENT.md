@@ -129,7 +129,13 @@ Adding an input changes the node's widget order: add new inputs **at the end** o
 
 ## Checking a change
 
-There is no test suite. A change is checked by what it produces.
+There is a small test suite for the core in `tests/`, and beyond it a change is checked by what it produces.
+
+```
+python -m pytest tests
+```
+
+It needs `pytest` and nothing else; any host's Python will do. The tests letter a page they draw themselves (three plain bubbles), so they need no image and no model. `tests/golden/` holds that page lettered by the code as it was before the marks of a bubble line (`|`, `[6]`) existed: the regression test compares pixels with those files, since there is no rendering harness to compare with. They depend on how Pillow draws text, so the match is exact only with the Pillow that drew them (`GOLDEN_PILLOW` in the test file). With any other Pillow the pictures are compared blurred, within `DRIFT_TOLERANCE`: glyphs drawn a fraction of a pixel away pass, a changed size or line break does not. To write them again, do it from the commit they came from (`SDCL_UPDATE_GOLDEN=1`), not from the current code. `tests/pytest.ini` makes `tests/` the root of the run, because the repository folder is itself a package (the ComfyUI entry point) that pytest would otherwise import.
 
 **Core changes that should not change the picture** (refactors, speed): letter the same images before and after and compare the pixels.
 

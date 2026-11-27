@@ -155,7 +155,7 @@ or, when `known` equals the current origin and the session is still alive:
 }
 ```
 
-`version` rises with every render; the page puts it into the image address. `warning` is true when the status says something the user should act on, such as character detection being off. `404` when the session is gone; `500` with the exception's name and message when the core fails.
+`version` rises with every render; the page puts it into the image address. `warning` is true when the status says something the user should act on: character detection being off, or one of the core's own warnings (`info.warnings`, such as line breaks typed by hand that did not fit), which are added to the status word for word. `404` when the session is gone; `500` with the exception's name and message when the core fails.
 
 ### GET `/comic_lettering/image/{session}/{which}`
 

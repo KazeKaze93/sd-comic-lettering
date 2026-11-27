@@ -165,13 +165,32 @@ There are three fields.
 
 | Field | What goes in |
 |---|---|
-| **Bubbles** | One line per bubble, in reading order: top to bottom, left to right. An empty line leaves a bubble empty. Line breaks inside a bubble are chosen for you, at the largest font size that fits, with short lines at the top and bottom and long ones in the middle. |
+| **Bubbles** | One line per bubble, in reading order: top to bottom, left to right. An empty line leaves a bubble empty. Line breaks inside a bubble are chosen for you, at the largest font size that fits, with short lines at the top and bottom and long ones in the middle. To break the lines yourself, or to set the size for one bubble, see [Line breaks and a size of your own](#line-breaks-and-a-size-of-your-own-for-one-bubble). |
 | **Caption** | Text outside the bubbles: straight on the art, or in a bubble drawn for it (`Put in a bubble` in the `Caption` section). |
 | **Sound effects** | One per line. Each is drawn big, tilted and outlined in a calm, empty part of the art, clear of the bubbles, the characters, the caption and the other effects. `THUD x3` stacks the word three times in a ragged column. `Shuffle` sends them all somewhere else. |
 
 A word may break after a hyphen you typed (`H-m-m`) when that lets the text be bigger.
 
 ![Two bubbles filled and two sound effects placed](docs/images/sfx.png)
+
+### Line breaks and a size of your own, for one bubble
+
+Two marks in a line of the `Bubbles` field change how that line is fitted into its bubble. Both are optional, and a line without them is fitted as before. They work the same in the editor, in automatic mode, in the ComfyUI node and on the command line.
+
+| Mark | What it does | Example |
+|---|---|---|
+| `\|` | A line break inside the bubble, where you put it. The script keeps your lines as they are and takes the largest font at which all of them fit. | `Go on,\|ask nicely.\|I might flex ♥` |
+| `[6]` at the start of the line | The largest font tried in this bubble, in % of image height: the unit of `Largest font, %`, which it replaces for this one bubble. `[6%]` and `[6.5]` are read too. | `[6]Go on, ask nicely.` |
+
+The two go together: `[4]Go on,|ask nicely.|I might flex ♥`.
+
+**Changed from earlier versions:** `|` in a line of the `Bubbles` field now breaks the line. Before, it was drawn as a character. A text of yours that has `|` in it will be lettered differently: the `|` is no longer drawn, and the line breaks where it stood. In the same way a line that starts with a number in square brackets, such as `[3] apples`, now reads the number as a size. Square brackets around anything else (`[sigh]`) are text, as before.
+
+**When your breaks do not fit.** Lines broken by hand cannot be re-wrapped, so a long line between two breaks can make the font very small. If your lines do not fit at the smallest readable size (`Smallest font, %`), the breaks are dropped: the text is wrapped automatically, as if the `|` were spaces, and the status line says so (`Bubble 3: the line breaks typed with "|" do not fit…`). Automatic mode, the ComfyUI node and the command line write the same sentence to the console. To keep your breaks at any size, give the line a size of its own, as below.
+
+**A size of your own is not second-guessed.** A line with `[…]` is always written into its bubble: it is not sent to the caption for being smaller than `Smallest font, %`, and its breaks are kept down to the smallest size the script draws at all (1.2% of image height). The size is a ceiling, not a promise: text that does not fit at that size is still made smaller.
+
+A line that goes to the caption keeps its breaks. `|` and `[…]` mean something only in the `Bubbles` field; the caption and the text of an area take a line break as you type it.
 
 ### Which bubble a line went to
 
@@ -446,7 +465,8 @@ Your own `.ttf` / `.otf` files go into `fonts/`: they are listed first and are g
 | Text lands on a character | See [Keeping text off the characters](#keeping-text-off-the-characters), or drag it, or paint a `Keep out` area. |
 | A `Light bubble` area is not painted | An area is painted once it has text and the field is closed with `Done` or Ctrl+Enter. |
 | The editor looks old after an update | Hard-refresh the page (Ctrl+F5). |
-| A line of `Bubbles` shows `cap` or `—` | It fitted no bubble. Shorten it, lower `Smallest font, %`, or put a bubble of your own where it should go. |
+| A line of `Bubbles` shows `cap` or `—` | It fitted no bubble. Shorten it, lower `Smallest font, %`, give the line a size of its own (`[6]` at its start), or put a bubble of your own where it should go. |
+| `the line breaks typed with "\|" do not fit` | Your lines would need a font below `Smallest font, %`, so the text was wrapped automatically. Break the longest line once more, or put a size at the start of the line (`[6]`) to keep the breaks at any size. |
 | The marks on the bars are plain characters, some in color | The host was not restarted after the update: restart it. |
 | ComfyUI: `The node has no image yet` | Run the workflow once first: the editor shows the image the node last received. |
 
@@ -476,6 +496,8 @@ Or from a terminal, in the repository folder:
 ```
 python -m comic_lettering in.png out.png --text "Hi!\nYo." --caption "Last day of summer." --sfx SPLASH
 ```
+
+In `--text`, `\n` goes to the next bubble, `|` breaks a line inside a bubble and `[6]` sets a bubble's size: `--text "Hi!\n[4]Go on,|ask nicely."`. Keep the quotes: a shell reads a bare `|` as a pipe.
 
 ## License
 
